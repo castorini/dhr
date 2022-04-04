@@ -134,7 +134,7 @@ class ColBERT(nn.Module):
                     raise ValueError(f"No pairwise teacher score for knowledge distillation!")
 
                 q_reps = q_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
-                p_reps = p_reps.view(effective_bsz, self.train_args.train_n_passages, -1, self.model_args.projection_out_dim)
+                p_reps = p_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
                 scores = torch.einsum('aimk,ajnk->aijmn', q_reps, p_reps)
                 scores = torch.max(scores, -1).values 
                 scores = torch.sum(scores, -1) 

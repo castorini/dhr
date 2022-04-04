@@ -84,7 +84,7 @@ def main():
         )
     elif (model_args.model).lower() == 'dhr':
         logger.info("Training model DHR")
-        model = DHR.build(
+        model = DHRModel.build(
             model_args,
             data_args,
             training_args,
