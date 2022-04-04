@@ -70,18 +70,14 @@ def main():
     if (model_args.model).lower() == 'colbert':
         logger.info("Evaluating model ColBERT")
         model = ColBERTForInference.build(
-            model_args,
-            data_args,
-            training_args,
+            model_name_or_path=model_args.model_name_or_path,
             config=config,
             cache_dir=model_args.cache_dir,
         )
     elif (model_args.model).lower() == 'dhr':
         logger.info("Evaluating model DHR")
         model = DHRModelForInference.build(
-            model_args,
-            data_args,
-            training_args,
+            model_name_or_path=model_args.model_name_or_path,
             config=config,
             cache_dir=model_args.cache_dir,
         )
