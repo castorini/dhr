@@ -162,6 +162,7 @@ class TrainTASBDataset(Dataset):
         for neg_psg_pid in negs:
             neg_psg = self.corpus[int(neg_psg_pid)]['text']
             encoded_passages.append(self.create_one_example(neg_psg))
+        
         return encoded_query, encoded_passages, None
     
     def output_qp_pair(self, group, _hashed_seed):

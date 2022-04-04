@@ -115,7 +115,7 @@ class DataArguments:
             self.dataset_split = 'train'
             self.dataset_language = 'default'
         if self.train_dir is not None:
-            files = os.listdir(self.train_dir)
+            files = sorted(os.listdir(self.train_dir))
             self.train_path = [
                 os.path.join(self.train_dir, f)
                 for f in files
@@ -124,7 +124,7 @@ class DataArguments:
         else:
             self.train_path = None
         if self.corpus_dir is not None:
-            files = os.listdir(self.corpus_dir)
+            files = sorted(os.listdir(self.corpus_dir))
             self.corpus_path = [
                 os.path.join(self.corpus_dir, f)
                 for f in files
@@ -134,7 +134,7 @@ class DataArguments:
             self.corpus_path = None
 
         if self.query_cluster_dir is not None:
-            files = os.listdir(self.query_cluster_dir)
+            files = sorted(os.listdir(self.query_cluster_dir))
             self.query_cluster_path = [
                 os.path.join(self.query_cluster_dir, f)
                 for f in files
@@ -142,6 +142,7 @@ class DataArguments:
             ]
         else:
             self.query_cluster_path = None
+
 
 
 @dataclass

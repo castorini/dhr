@@ -155,9 +155,9 @@ class DHRModel(nn.Module):
                 p_semantic_reps = p_semantic_reps.view(effective_bsz, 2, -1)
                 pair_semantic_scores = torch.matmul(q_semantic_reps, p_semantic_reps.transpose(2, 1)).squeeze()
 
-                pair_scores = pair_lexical_scores + lamb * pair_semantic_scores
+                scores = pair_lexical_scores + lamb * pair_semantic_scores
 
-                loss = self.kl_loss(nn.functional.log_softmax(pair_scores, dim=-1), self.softmax(teacher_scores))
+                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores))
             else:
                 # lexical matching
                 lexical_scores = torch.matmul(q_lexical_reps, p_lexical_reps.transpose(0, 1))
