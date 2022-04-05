@@ -18,8 +18,6 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import EvalDataset, EvalCollator
-from tevatron.DHR.modeling import DHRModelForInference, DHROutput
-from tevatron.ColBERT.modeling import ColBERTForInference, ColBERTOutput
 from tevatron.datasets import HFEvalDataset
 from tevatron.utils import metrics
 METRICS_MAP = ['MAP', 'RPrec', 'NDCG', 'MRR', 'MRR@10']
@@ -61,23 +59,21 @@ def main():
         use_fast=False,
     )
 
-    model = DHRModelForInference.build(
-        model_name_or_path=model_args.model_name_or_path,
-        config=config,
-        cache_dir=model_args.cache_dir,
-    )
-
     if (model_args.model).lower() == 'colbert':
+        from tevatron.ColBERT.modeling import ColBERTForInference, ColBERTOutput
+        from tevatron.ColBERT.modeling import ColBERTOutput as Output
         logger.info("Evaluating model ColBERT")
         model = ColBERTForInference.build(
-            model_name_or_path=model_args.model_name_or_path,
+            model_args=model_args,
             config=config,
             cache_dir=model_args.cache_dir,
         )
     elif (model_args.model).lower() == 'dhr':
+        from tevatron.DHR.modeling import DHRModelForInference, DHROutput
+        from tevatron.DHR.modeling import DHROutput as Output
         logger.info("Evaluating model DHR")
         model = DHRModelForInference.build(
-            model_name_or_path=model_args.model_name_or_path,
+            model_args=model_args,
             config=config,
             cache_dir=model_args.cache_dir,
         )
@@ -124,7 +120,7 @@ def main():
                     batch_qry_featutres[k] = v.to(training_args.device)
                 for k, v in batch_psg_features.items():
                     batch_psg_features[k] = v.to(training_args.device)
-                model_output: ColBERTOutput = model(query=batch_qry_featutres, passage=batch_psg_features)
+                model_output: Output = model(query=batch_qry_featutres, passage=batch_psg_features)
         qids += batch_qry_ids
         candidiate_psg_ids += batch_psg_ids 
         scores += model_output.scores.cpu().numpy().tolist()

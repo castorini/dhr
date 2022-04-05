@@ -106,6 +106,12 @@ class DHRModel(nn.Module):
             self.process_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
 
+        # Todo: 
+        if model_args.combine_cls:
+            self.lamb = 1
+        else:
+            self.lamb = 0
+        self.temperature = 1
 
     def forward(
             self,
@@ -114,9 +120,7 @@ class DHRModel(nn.Module):
             teacher_scores: Tensor = None,
     ):
 
-        # Todo: 
-        lamb = 1
-        temperature = 1
+        
 
         q_lexical_reps, q_semantic_reps = self.encode_query(query)
         p_lexical_reps, p_semantic_reps = self.encode_passage(passage)
@@ -168,7 +172,7 @@ class DHRModel(nn.Module):
                 semantic_scores = semantic_scores.view(effective_bsz, -1)
 
                 # score fusion
-                scores = lexical_scores + lamb * semantic_scores
+                scores = lexical_scores + self.lamb * semantic_scores
 
                 target = torch.arange(
                     scores.size(0),
@@ -202,7 +206,7 @@ class DHRModel(nn.Module):
                 semantic_scores = (q_semantic_reps * p_semantic_reps).sum(1)
 
                 # score fusion
-                scores = lexical_scores + lamb * semantic_scores # lambda=1
+                scores = lexical_scores + self.lamb * semantic_scores # lambda=1
             else:
                 scores = None
 
@@ -388,6 +392,7 @@ class DHRModelForInference(DHRModel):
             lm_p: PreTrainedModel,
             pooler: nn.Module = None,
             term_weight_trans: nn.Module = None,
+            lamb = 1,
             **kwargs,
     ):
         nn.Module.__init__(self)
@@ -396,6 +401,7 @@ class DHRModelForInference(DHRModel):
         self.pooler = pooler
         self.term_weight_trans = term_weight_trans
         self.softmax = nn.Softmax(dim=-1)
+        self.lamb = lamb
 
     @torch.no_grad()
     def encode_passage(self, psg):
@@ -468,12 +474,17 @@ class DHRModelForInference(DHRModel):
             term_weight_trans.load(model_name_or_path)
         else:
             term_weight_trans = None
-
+        
+        if model_args.combine_cls:
+            lamb = 1
+        else:
+            lamb = 0
 
         model = cls(
             lm_q=lm_q,
             lm_p=lm_p,
             pooler=pooler,
-            term_weight_trans=term_weight_trans
+            term_weight_trans=term_weight_trans,
+            lamb=lamb
         )
         return model

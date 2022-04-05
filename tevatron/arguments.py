@@ -37,6 +37,7 @@ class ModelArguments:
     pairwise_kd: bool = field(default=False)
 
     # out projection
+    combine_cls: bool = field(default=False)
     add_pooler: bool = field(default=False)
     projection_in_dim: int = field(default=768)
     projection_out_dim: int = field(default=768)

@@ -112,6 +112,12 @@ class DHRModel(nn.Module):
             self.process_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
 
+        # Todo: 
+        if model_args.combine_cls
+            self.lamb = 1
+        else:
+            self.lamb = 0
+        self.temperature = 1
 
     def forward(
             self,
@@ -120,13 +126,12 @@ class DHRModel(nn.Module):
             teacher_scores: Tensor = None,
     ):
 
-        # Todo: 
-        lamb = 1
-        temperature = 1
+
 
         q_lexical_reps, q_semantic_reps = self.encode_query(query)
         p_lexical_reps, p_semantic_reps = self.encode_passage(passage)
-
+        import pdb; pdb.set_trace()  # breakpoint f7cb2d25 //
+        
         if q_lexical_reps is None or p_lexical_reps is None:
             return DHROutput(
                 q_lexical_reps = q_lexical_reps,
@@ -155,8 +160,7 @@ class DHRModel(nn.Module):
             semantic_scores = semantic_scores.view(effective_bsz, -1)
 
             # score fusion
-            scores = lexical_scores + lamb * semantic_scores
-            import pdb; pdb.set_trace()  # breakpoint be4e0404 //
+            scores = lexical_scores + self.lamb * semantic_scores
             
             target = torch.arange(
                 scores.size(0),
@@ -165,7 +169,7 @@ class DHRModel(nn.Module):
             )
             target = target * self.data_args.train_n_passages
 
-            loss = self.cross_entropy(scores * temperature, target)
+            loss = self.cross_entropy(scores * self.temperature, target)
             # loss.backward()
             # for i, parameter in enumerate(self.lm_q.parameters()):
             #     if parameter.grad is None:

@@ -20,7 +20,7 @@ from tevatron.arguments import ModelArguments, DataArguments, \
 from tevatron.data import EncodeDataset, EncodeCollator
 from tevatron.DHR.modeling import DHRModelForInference, DHROutput
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
-from tevatron.densification.utils import densify
+from tevatron.DHR.utils import densify
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def main():
     )
 
     model = DHRModelForInference.build(
-        model_name_or_path=model_args.model_name_or_path,
+        model_args=model_args,
         config=config,
         cache_dir=model_args.cache_dir,
     )
@@ -88,9 +88,9 @@ def main():
     )
 
     # todo: add to arg, check cls dims and densified dims
-    densified_dims = 256
-    semantic_dims = 256
-    combine_cls = False
+    densified_dims = model_args.projection_out_dim
+    semantic_dims = model_args.projection_out_dim
+    combine_cls = model_args.combine_cls
     offset = 0
 
     data_num = len(encode_dataset)

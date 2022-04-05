@@ -257,6 +257,8 @@ class EvalDataset(Dataset):
             padding=False,
             return_token_type_ids=False,
         )
+        if len(psg_text)==0:
+            psg_text = [0]
         encoded_psg_text = self.tok.encode_plus(
             psg_text,
             max_length=self.data_args.p_max_len,
