@@ -34,7 +34,7 @@ class ModelArguments:
     )
 
     # knowledge distillation
-    pairwise_kd: bool = field(default=False)
+    kd: bool = field(default=False)
 
     # out projection
     combine_cls: bool = field(default=False)

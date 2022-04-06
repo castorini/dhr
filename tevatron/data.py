@@ -106,8 +106,8 @@ class TrainTASBDataset(Dataset):
         if self.data_args.corpus_dir is None:
             raise ValueError('You should input --corpus_dir with files split*.json')
 
-        if (self.data_args.train_n_passages!=2) and (self.tasb_sampling):
-            raise ValueError('--train_n_passages should be 2 if you use tasb sampling')
+        # if (self.data_args.train_n_passages!=2) and (self.tasb_sampling):
+        #     raise ValueError('--train_n_passages should be 2 if you use tasb sampling')
 
         if (self.qidx_cluster is None) and (self.tasb_sampling):
             raise ValueError('You should input  --query_cluster_dir for tasb sampling')
@@ -129,7 +129,7 @@ class TrainTASBDataset(Dataset):
         )
         return item
 
-    def output_qp_list(self, group, _hashed_seed):
+    def output_qp(self, group, _hashed_seed):
         epoch = int(self.trainer.state.epoch)
         qry = group['query']
         encoded_query = self.create_one_example(qry, is_query=True)
@@ -165,31 +165,34 @@ class TrainTASBDataset(Dataset):
         
         return encoded_query, encoded_passages, None
     
-    def output_qp_pair(self, group, _hashed_seed):
-        encoded_passages = []
+    def output_qp_with_score(self, group, _hashed_seed):
         qry = group['query']
         encoded_query = self.create_one_example(qry, is_query=True)
 
-        bin_pairs = group['bin_pairs']
-        bin_pair =[]
-        while len(bin_pair) == 0:
-            bin_pair = random.choices(bin_pairs, k=1)[0]
-        pair = random.choices(bin_pair, k=1)[0]
+        encoded_passages = []
+        scores = []
+        qids_bin_pairs = group['bin_pairs']
+        bins_pairs = random.choices(qids_bin_pairs, k=1)[0]
 
+        pairs = []
+        negative_size = self.data_args.train_n_passages - 1
+        for i in range(negative_size):
+            bin_pairs = random.choices(bins_pairs, k=1)[0]
+            pairs.append(random.choices(bin_pairs, k=1)[0])
 
-        pos_psg_idx = int(pair[0])
-        pos_psg_id = int(group['positive_pids'][pos_psg_idx])
-        pos_psg = self.corpus[pos_psg_id]['text']
+        pos_psg_idx = int(pairs[0][0])
+        pos_psg_id = group['positive_pids'][pos_psg_idx]
+        pos_psg = self.corpus[int(pos_psg_id)]['text']
         encoded_passages.append(self.create_one_example(pos_psg))
 
-        neg_psg_idx = int(pair[1])
-        neg_psg_id = int(group['negative_pids'][neg_psg_idx])
-        neg_psg = self.corpus[neg_psg_id]['text']
-        encoded_passages.append(self.create_one_example(neg_psg))
+        for pair in pairs:
+            neg_psg_idx = int(pair[1])
+            neg_psg_id = group['negative_pids'][neg_psg_idx]
+            neg_psg = self.corpus[int(neg_psg_id)]['text']
+            encoded_passages.append(self.create_one_example(neg_psg))
+            scores.append(-pair[2])
 
-        score = pair[2]
-
-        return encoded_query, encoded_passages, score
+        return encoded_query, encoded_passages, scores
 
     def __len__(self):
         return self.total_len
@@ -197,17 +200,19 @@ class TrainTASBDataset(Dataset):
     def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
         _hashed_seed = hash(item + self.trainer.args.seed)
         if self.tasb_sampling:
+            random.seed(_hashed_seed) 
             # make sure the same query cluster gathered in the same batch
-            random.seed(self.trainer.state.global_step)
+            # random.seed(self.trainer.state.global_step)
             cluster_num = random.randint(0, self.cluster_num-1)
             # sampling different queries in a batch
-            random.seed(_hashed_seed) 
+            
             item = random.choices(self.qidx_cluster[cluster_num]['qidx'])[0]
+
             group = self.train_data[item]
-            return self.output_qp_pair(group, _hashed_seed)
+            return self.output_qp_with_score(group, _hashed_seed)
         else:
             group = self.train_data[item]
-            return self.output_qp_list(group, _hashed_seed)
+            return self.output_qp(group, _hashed_seed)
         
 
 
@@ -302,7 +307,7 @@ class QPCollator(DataCollatorWithPadding):
         )
 
         if features[0][2] is not None:
-            scores = [[f[2],0] for f in features]
+            scores = [[0]+f[2] for f in features]
             scores_collated = torch.tensor(scores)
         else:
             scores_collated = None

@@ -5,7 +5,7 @@ import glob
 import numpy as np
 import math
 from progressbar import *
-from util import load_tfrecords_and_index, read_id_dict, faiss_index
+# from util import load_tfrecords_and_index, read_id_dict, faiss_index
 from multiprocessing import Pool, Manager
 import pickle
 import torch
@@ -15,17 +15,17 @@ import time
 import faiss
 
 
-def write_id(id_to_doc_path, index_path, docids=[]):
-	idx_to_docid, docid_to_idx = read_id_dict(id_to_doc_path)
-	print('Write id to index folder...')
-	fout = open(os.path.join(index_path, 'docid'), 'w')
-	if len(docids)==0:
-		for idx in range(len(idx_to_docid)):
-			fout.write('{}\n'.format(idx_to_docid[idx]))
-	else:
-		for idx in docids:
-			fout.write('{}\n'.format(idx_to_docid[idx]))
-	fout.close()
+# def write_id(id_to_doc_path, index_path, docids=[]):
+# 	idx_to_docid, docid_to_idx = read_id_dict(id_to_doc_path)
+# 	print('Write id to index folder...')
+# 	fout = open(os.path.join(index_path, 'docid'), 'w')
+# 	if len(docids)==0:
+# 		for idx in range(len(idx_to_docid)):
+# 			fout.write('{}\n'.format(idx_to_docid[idx]))
+# 	else:
+# 		for idx in docids:
+# 			fout.write('{}\n'.format(idx_to_docid[idx]))
+# 	fout.close()
 
 def faiss_search(query_embs, corpus_embs, batch=1, topk=1000):
 	print('start faiss index')
@@ -124,25 +124,21 @@ def search(query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs, all_results
 def main():
 	parser = argparse.ArgumentParser()
 	# parser.add_argument("--corpus_emb_path", type=str, required=True, help='The embedding file or the dir to save all the files with .tf')
-	parser.add_argument("--query_emb_path", type=str, required=True, help='The embedding file or the dir to save all the files with .tf')
-	parser.add_argument("--doc_word_num", type=int, default=1, help='in case when using token embedding maxsim search instead of pooling embedding')
+	parser.add_argument("--query_emb_path", type=str, required=False, help='The embedding file or the dir to save all the files with .tf')
+	parser.add_argument("--index_prefix", type=str, default='msmarco-passage')
 	parser.add_argument("--emb_dim", type=int, default=768)
-	parser.add_argument("--total_shrad", type=int, default=1)
-	parser.add_argument("--shrad", type=int, default=0)
 	parser.add_argument("--M", type=float, default=0.1)
-	parser.add_argument("--passages_per_file", type=int, default=1000000, help='our default tf record include 1000,000 passages per file')
 	parser.add_argument("--topk", type=int, default=1000)
-	parser.add_argument("--data_type", type=str, default='16', help='16 or 32 bit')
 	parser.add_argument("--index", action='store_true')
-	parser.add_argument("--add_cls", action='store_true')
+	parser.add_argument("--combine_cls", action='store_true')
 	parser.add_argument("--brute_force", action='store_true')
-	parser.add_argument("--max_passage_each_index", type=int, default=None, help='Set a passage number limitation for index')
-	parser.add_argument("--id_to_doc_path", type=str, default=None)
 	parser.add_argument("--index_path", type=str, required=True)
 	parser.add_argument("--faiss_index_path", type=str)
 	parser.add_argument("--use_gpu", action='store_true')
 	parser.add_argument("--rerank", action='store_true')
 	parser.add_argument("--fusion", action='store_true')
+	parser.add_argument("--total_shrad", type=int, default=1)
+	parser.add_argument("--shrad", type=int, default=0)
 	# parser.add_argument("--query", type=str)
 	args = parser.parse_args()
 
@@ -156,7 +152,7 @@ def main():
 
 	if args.index:
 		## Merge index
-		corpus_files = glob.glob(os.path.join(args.index_path, 'doc.split*.pt'))
+		corpus_files = glob.glob(os.path.join(args.index_path, args.index_prefix + '.split*.pt'))
 		corpus_embs = []
 		corpus_arg_idxs = []
 		docids = []
@@ -172,40 +168,21 @@ def main():
 		print('Merge index ...')
 		corpus_arg_idxs = np.concatenate(corpus_arg_idxs, axis=0)
 		corpus_embs = np.concatenate(corpus_embs, axis=0)
-		with open(os.path.join(args.index_path, 'doc.pt'), 'wb') as f:
+		with open(os.path.join(args.index_path, args.index_prefix + '.index.pt'), 'wb') as f:
 			pickle.dump([corpus_embs, corpus_arg_idxs, docids], f, protocol=4)
 
 	else:
 		query_texts = []
 		query_ids = []
 		qid2qidx = {}
-		# with open(args.query, 'r') as f:
-		# 	for i, line in enumerate(f):
-		# 		query_id, query_text = line.split('\t')
-		# 		query_texts.append(query_text)
-		# 		query_ids.append(query_id)
-		# 		qid2qidx[query_id] = i
 
-		# if args.id_to_doc_path!=None:
-		# 	docidx2docid = {}
-		# 	with open(args.id_to_doc_path, 'r') as f:
-		# 		for i, line in enumerate(f):
-		# 			docidx, docid = line.strip().split('\t')
-		# 			docidx2docid[int(docidx)] = docid
-
-		# if args.query_emb_path.split('.')[-1] =='tf':
-		# 	print('Load query embeddings: {}...'.format(args.query_emb_path))
-		# 	query_embs, query_arg_idxs, qids=load_tfrecords_and_index([args.query_emb_path],\
-		# 								data_num=800000, word_num=1, \
-		# 								dim=args.emb_dim, data_type=args.data_type, add_cls=args.add_cls)
-		# elif args.query_emb_path.split('.')[-1] =='pickle':
 		with open(args.query_emb_path, 'rb') as f:
 			query_embs, query_arg_idxs, qids=pickle.load(f)
 
 
 
 		if args.fusion:
-			args.add_cls = True
+			args.combine_cls = True
 			cpu_index = faiss.read_index(os.path.join(args.faiss_index_path, 'index'))
 			print('Reconstruct corpus vector from index...')
 			vector_num = cpu_index.ntotal
@@ -267,9 +244,6 @@ def main():
 			# torch.sum(density)/8841823/args.emb_dim
 		
 
-		# manager = Manager()
-		# all_results = manager.dict()
-		# all_scores = manager.dict()
 		all_results = {}
 		all_scores = {}
 
@@ -286,16 +260,12 @@ def main():
 		total_num_idx = 0
 		for i, (query_emb, query_arg_idx) in enumerate(zip(query_embs, query_arg_idxs)):
 
-			qidx = i #int(query_emb[0])
-			# query_emb = query_emb[1:]
-			# query_arg_idx = query_arg_idxs[qidx]
-
-			
+			qidx = i
 			if args.M==0:
 				total_num_idx+=args.emb_dim
 				candidate_sparse_embs = ((corpus_arg_idxs[:,:]==query_arg_idx)*corpus_embs[:,:args.emb_dim])					
 
-				if args.add_cls:
+				if args.combine_cls:
 					candidate_dense_embs = corpus_embs[:,args.emb_dim:]
 					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 					del candidate_sparse_embs, candidate_dense_embs
@@ -311,10 +281,10 @@ def main():
 
 			else:
 				num_idx = int((query_emb[:args.emb_dim] > args.M).sum())
-				if args.add_cls:
+				if args.combine_cls:
 					num_cls_idx = int((query_emb[args.emb_dim:] > args.M).sum())
 					important_cls_idx = torch.argsort(query_emb[args.emb_dim:], axis=0, descending=True).tolist()[:num_cls_idx]
-				if args.add_cls:
+				if args.combine_cls:
 					total_num_idx += num_idx + num_cls_idx
 				else:
 					total_num_idx += num_idx 
@@ -326,28 +296,28 @@ def main():
 
 				
 				#Approximate GIN
-				# candidate_sparse_embs = ((corpus_arg_idxs[:,important_idx]==query_arg_idx[important_idx])*corpus_embs[:,important_idx])
-				# if args.add_cls:
+				candidate_sparse_embs = ((corpus_arg_idxs[:,important_idx]==query_arg_idx[important_idx])*corpus_embs[:,important_idx])
+				if args.combine_cls:
 
-				# 	candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				# 	partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
-				# else:
-				# 	partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
+					candidate_dense_embs = corpus_embs[:,args.emb_dim:]
+					partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
+				else:
+					partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
 
 				# IN as an approximation ablation
-				if args.add_cls:
-					candidate_sparse_embs = corpus_embs[:,:args.emb_dim]
-					candidate_dense_embs = corpus_embs[:,args.emb_dim:]
+				# if args.add_cls:
+				# 	candidate_sparse_embs = corpus_embs[:,:args.emb_dim]
+				# 	candidate_dense_embs = corpus_embs[:,args.emb_dim:]
 
-					partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + 1*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-				else:
-					partial_scores = torch.einsum('ij,j->i',(corpus_embs, query_emb))
+				# 	partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + 1*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
+				# else:
+				# 	partial_scores = torch.einsum('ij,j->i',(corpus_embs, query_emb))
 
 				if args.rerank:
 					candidates = torch.argsort(partial_scores, descending=True)[:10*args.topk]
 					candidate_sparse_embs = ((corpus_arg_idxs[candidates,:]==query_arg_idx)*corpus_embs[candidates,:args.emb_dim])
 					# candidate_sparse_embs = torch.where((corpus_arg_idxs[candidates,:]==query_arg_idx),corpus_embs[candidates,:args.emb_dim],torch.zeros_like(corpus_embs[candidates,:args.emb_dim]))
-					if args.add_cls:
+					if args.combine_cls:
 						candidate_dense_embs = corpus_embs[candidates,args.emb_dim:]
 						scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + 1*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 					else:
@@ -407,8 +377,6 @@ def main():
 			score = all_scores[query_id]
 			for rank, docidx in enumerate(result):
 				docid = docids[docidx]
-				if args.id_to_doc_path:
-					docid = docidx2docid[docid]
 				if (docid!=query_id):
 					fout.write('{} Q0 {} {} {} {}\n'.format(query_id, docid, rank+1, score[rank], 'DWM'))
 			pbar.update(10 * i + 1)

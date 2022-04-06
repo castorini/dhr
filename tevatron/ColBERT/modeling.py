@@ -129,17 +129,18 @@ class ColBERT(nn.Module):
                 if self.train_args.negatives_x_device \
                 else self.train_args.per_device_train_batch_size
 
-            if self.model_args.pairwise_kd:
+            if self.model_args.kd:
                 if teacher_scores is None:
-                    raise ValueError(f"No pairwise teacher score for knowledge distillation!")
+                    raise ValueError(f"No teacher score for knowledge distillation!")
 
-                q_reps = q_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
-                p_reps = p_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
-                scores = torch.einsum('aimk,ajnk->aijmn', q_reps, p_reps)
+                q_reps_ = q_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
+                p_reps_ = p_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
+                scores = torch.einsum('aimk,ajnk->aijmn', q_reps_, p_reps_)
                 scores = torch.max(scores, -1).values 
                 scores = torch.sum(scores, -1) 
                 scores = scores.squeeze()
-                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores))
+                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores/4))
+
             else:
                 # Maxsim scores: p_res (batch_size, q_seq_len, dim), q_reps (n*batch_size, p_seq_len, dim)
                 scores = torch.einsum('aik,bjk->abij', q_reps, p_reps) # (batch_size, n*batch_size, q_seq_len, p_seq_len)
@@ -168,6 +169,7 @@ class ColBERT(nn.Module):
         else:
             loss = None
             if query and passage:
+
                 scores = torch.einsum('aik,ajk->aij', q_reps, p_reps) 
                 scores = torch.max(scores, -1).values
                 scores = torch.sum(scores, -1) 
