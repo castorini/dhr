@@ -148,7 +148,7 @@ class DHRModel(nn.Module):
 
             
             # todo: add tct loss
-            if self.model_args.pairwise_kd:
+            if self.model_args.kd:
                 if teacher_scores is None:
                     raise ValueError(f"No pairwise teacher score for knowledge distillation!")
                 q_lexical_reps = q_lexical_reps.view(effective_bsz, 1, -1)

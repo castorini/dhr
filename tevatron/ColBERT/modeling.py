@@ -139,7 +139,7 @@ class ColBERT(nn.Module):
                 scores = torch.max(scores, -1).values 
                 scores = torch.sum(scores, -1) 
                 scores = scores.squeeze()
-                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores/4))
+                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores))
 
             else:
                 # Maxsim scores: p_res (batch_size, q_seq_len, dim), q_reps (n*batch_size, p_seq_len, dim)
@@ -193,6 +193,7 @@ class ColBERT(nn.Module):
             p_reps = self.pooler(p=p_hidden)  # D * d
         else:
             p_reps = p_hidden[:, 0]
+        p_reps = torch.nn.functional.normalize(p_reps, p=2, dim=-1)
         return p_hidden, p_reps
 
     def encode_query(self, qry):
@@ -204,6 +205,7 @@ class ColBERT(nn.Module):
             q_reps = self.pooler(q=q_hidden)
         else:
             q_reps = q_hidden
+        q_reps = torch.nn.functional.normalize(q_reps, p=2, dim=-1)
         return q_hidden, q_reps
 
     @staticmethod
