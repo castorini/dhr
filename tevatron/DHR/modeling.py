@@ -181,7 +181,7 @@ class DHRModel(nn.Module):
                 )
                 target = target * self.data_args.train_n_passages
 
-                loss = self.cross_entropy(scores * temperature, target)
+                loss = self.cross_entropy(scores * self.temperature, target)
 
 
 
