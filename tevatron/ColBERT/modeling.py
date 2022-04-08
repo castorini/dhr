@@ -189,11 +189,14 @@ class ColBERT(nn.Module):
 
         psg_out = self.lm_p(**psg, return_dict=True)
         p_hidden = psg_out.last_hidden_state
+        attention_mask = psg['attention_mask'][:,:,None]
+
         if self.pooler is not None:
             p_reps = self.pooler(p=p_hidden)  # D * d
         else:
             p_reps = p_hidden[:, 0]
-        p_reps = torch.nn.functional.normalize(p_reps, p=2, dim=-1)
+        # p_reps = torch.nn.functional.normalize(p_reps, p=2, dim=-1)
+        p_hidden *= attention_mask
         return p_hidden, p_reps
 
     def encode_query(self, qry):
@@ -201,11 +204,17 @@ class ColBERT(nn.Module):
             return None, None
         qry_out = self.lm_q(**qry, return_dict=True)
         q_hidden = qry_out.last_hidden_state
+        q_length = qry['attention_mask'].sum(-1)[:,None,None]
+        attention_mask = qry['attention_mask'][:,:,None]
+
         if self.pooler is not None:
             q_reps = self.pooler(q=q_hidden)
         else:
             q_reps = q_hidden
-        q_reps = torch.nn.functional.normalize(q_reps, p=2, dim=-1)
+
+        # q_reps = torch.nn.functional.normalize(q_reps, p=2, dim=-1)
+        q_hidden *= attention_mask
+        q_hidden /= q_length*32
         return q_hidden, q_reps
 
     @staticmethod

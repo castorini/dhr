@@ -230,6 +230,8 @@ class EncodeDataset(Dataset):
 
     def __getitem__(self, item) -> Tuple[str, BatchEncoding]:
         text_id, text = (self.encode_data[item][f] for f in self.input_keys)
+        if len(text)==0:
+            text = [0]
         encoded_text = self.tok.encode_plus(
             text,
             max_length=self.max_len,
