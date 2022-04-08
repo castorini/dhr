@@ -372,13 +372,12 @@ def main():
 		else:
 			fout = open('result{}.trec'.format(args.shrad), 'w')
 		for i, query_id in enumerate(all_results):
-			# query_id = query_ids[qidx]
 			result = all_results[query_id]
 			score = all_scores[query_id]
 			for rank, docidx in enumerate(result):
 				docid = docids[docidx]
 				if (docid!=query_id):
-					fout.write('{} Q0 {} {} {} {}\n'.format(query_id, docid, rank+1, score[rank], 'DWM'))
+					fout.write('{} Q0 {} {} {} {}\n'.format(query_id, docid, rank+1, score[rank], 'DHR'))
 			pbar.update(10 * i + 1)
 		fout.close()
 
