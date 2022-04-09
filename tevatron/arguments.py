@@ -32,6 +32,7 @@ class ModelArguments:
         default=False,
         metadata={"help": "no weight sharing between qry passage encoders"}
     )
+    joint_train: bool = field(default=False)
 
     # knowledge distillation
     kd: bool = field(default=False)

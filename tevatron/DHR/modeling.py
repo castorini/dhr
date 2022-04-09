@@ -147,21 +147,20 @@ class DHRModel(nn.Module):
                 else self.train_args.per_device_train_batch_size
 
             
-            # todo: add tct loss
             if self.model_args.kd:
                 if teacher_scores is None:
                     raise ValueError(f"No pairwise teacher score for knowledge distillation!")
+                # lexical matching
                 q_lexical_reps = q_lexical_reps.view(effective_bsz, 1, -1)
-                p_lexical_reps = p_lexical_reps.view(effective_bsz, 2, -1)
-                pair_lexical_scores = torch.matmul(q_lexical_reps, p_lexical_reps.transpose(2, 1)).squeeze()
+                p_lexical_reps = p_lexical_reps.view(effective_bsz, self.data_args.train_n_passages, -1)
+                lexical_scores = torch.matmul(q_lexical_reps, p_lexical_reps.transpose(2, 1)).squeeze()
 
+                # semantic matching
                 q_semantic_reps = q_semantic_reps.view(effective_bsz, 1, -1)
-                p_semantic_reps = p_semantic_reps.view(effective_bsz, 2, -1)
-                pair_semantic_scores = torch.matmul(q_semantic_reps, p_semantic_reps.transpose(2, 1)).squeeze()
+                p_semantic_reps = p_semantic_reps.view(effective_bsz, self.data_args.train_n_passages, -1)
+                semantic_scores = torch.matmul(q_semantic_reps, p_semantic_reps.transpose(2, 1)).squeeze()
 
-                scores = pair_lexical_scores + lamb * pair_semantic_scores
-
-                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores))
+                teacher_scores = self.softmax(teacher_scores)
             else:
                 # lexical matching
                 lexical_scores = torch.matmul(q_lexical_reps, p_lexical_reps.transpose(0, 1))
@@ -171,19 +170,22 @@ class DHRModel(nn.Module):
                 semantic_scores = torch.matmul(q_semantic_reps, p_semantic_reps.transpose(0, 1))
                 semantic_scores = semantic_scores.view(effective_bsz, -1)
 
-                # score fusion
-                scores = lexical_scores + self.lamb * semantic_scores
-
-                target = torch.arange(
-                    scores.size(0),
-                    device=scores.device,
+                teacher_scores = torch.arange(
+                    lexical_scores.size(0),
+                    device=lexical_scores.device,
                     dtype=torch.long
                 )
-                target = target * self.data_args.train_n_passages
+                teacher_scores = teacher_scores * self.data_args.train_n_passages
+                teacher_scores = torch.nn.functional.one_hot(teacher_scores, num_classes=lexical_scores.size(1)).float()
 
-                loss = self.cross_entropy(scores * self.temperature, target)
-
-
+            # loss
+            if self.model_args.joint_train:
+                scores = lexical_scores + self.lamb * semantic_scores
+                loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
+            else:
+                lexical_loss = self.kl_loss(nn.functional.log_softmax(lexical_scores, dim=-1), self.softmax(teacher_scores))
+                semantic_loss = self.kl_loss(nn.functional.log_softmax(semantic_scores, dim=-1), self.softmax(teacher_scores))
+                loss = (lexical_loss + semantic_loss)/2
 
             if self.train_args.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction

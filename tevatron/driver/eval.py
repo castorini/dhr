@@ -141,8 +141,8 @@ def main():
                 logging.warn("Read {} examples, Metrics so far:".format(num_examples))
                 logging.warn("  ".join(METRICS_MAP))
                 logging.warn(all_metrics / num_examples)
-                if num_examples==200:
-                    break
+                # if num_examples==200:
+                #     break
         # Write results
 
 
