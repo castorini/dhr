@@ -32,9 +32,13 @@ class ModelArguments:
         default=False,
         metadata={"help": "no weight sharing between qry passage encoders"}
     )
-    joint_train: bool = field(default=False)
 
     # knowledge distillation
+    teacher_model_name_or_path: str = field(
+        default=None,
+        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
+    )
+    tct: bool = field(default=False)
     kd: bool = field(default=False)
 
     # out projection
@@ -42,6 +46,44 @@ class ModelArguments:
     add_pooler: bool = field(default=False)
     projection_in_dim: int = field(default=768)
     projection_out_dim: int = field(default=768)
+
+    # for Jax training
+    dtype: Optional[str] = field(
+        default="float32",
+        metadata={
+            "help": "Floating-point format in which the model weights should be initialized and trained. Choose one "
+                    "of `[float32, float16, bfloat16]`. "
+        },
+    )
+
+
+@dataclass
+class ColBERTModelArguments:
+    config_name: Optional[str] = field(
+        default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
+    )
+    tokenizer_name: Optional[str] = field(
+        default=None, metadata={"help": "Pretrained tokenizer name or path if not the same as model_name"}
+    )
+    cache_dir: Optional[str] = field(
+        default=None, metadata={"help": "Where do you want to store the pretrained models downloaded from s3"}
+    )
+
+    # modeling
+    model: str = field(
+        default='ColBERT',
+        metadata={"help": "ColBERT"}
+    )
+    untie_encoder: bool = field(
+        default=False,
+        metadata={"help": "no weight sharing between qry passage encoders"}
+    )
+
+    # out projection
+    combine_cls: bool = field(default=False)
+    add_pooler: bool = field(default=True)
+    projection_in_dim: int = field(default=768)
+    projection_out_dim: int = field(default=128)
 
     # for Jax training
     dtype: Optional[str] = field(

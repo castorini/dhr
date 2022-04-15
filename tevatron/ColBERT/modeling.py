@@ -169,7 +169,6 @@ class ColBERT(nn.Module):
         else:
             loss = None
             if query and passage:
-
                 scores = torch.einsum('aik,ajk->aij', q_reps, p_reps) 
                 scores = torch.max(scores, -1).values
                 scores = torch.sum(scores, -1) 

@@ -239,7 +239,7 @@ def main():
 			sort_idx = torch.argsort(scores, descending=True)[:args.topk]
 			sort_candidates = sort_idx
 			sort_scores = scores[sort_idx]
-
+			
 			
 			torch.cuda.empty_cache()
 
@@ -261,6 +261,7 @@ def main():
 			
 			#Approximate GIN
 			candidate_sparse_embs = ((corpus_arg_idxs[:,important_idx]==query_arg_idx[important_idx])*corpus_embs[:,important_idx])
+
 			if args.combine_cls:
 
 				candidate_dense_embs = corpus_embs[:,args.emb_dim:]

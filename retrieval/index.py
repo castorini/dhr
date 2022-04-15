@@ -153,6 +153,7 @@ def main():
 	if args.index:
 		## Merge index
 		corpus_files = glob.glob(os.path.join(args.index_path, args.index_prefix + '.split*.pt'))
+
 		corpus_embs = []
 		corpus_arg_idxs = []
 		docids = []

@@ -14,7 +14,7 @@ from transformers.modeling_outputs import ModelOutput
 
 from typing import Optional, Dict
 
-from .arguments import ModelArguments, DataArguments, \
+from ..arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 import logging
 
@@ -29,25 +29,18 @@ class DenseOutput(ModelOutput):
     scores: Tensor = None
 
 
-class DHROutput(ModelOutput):
-    q_semantic_reps: Tensor = None
-    q_lexical_reps: Tensor = None
-    p_semantic_reps: Tensor = None
-    p_lexical_reps: Tensor = None
-    loss: Tensor = None
-    scores: Tensor = None
-
-
 class LinearPooler(nn.Module):
     def __init__(
             self,
             input_dim: int = 768,
             output_dim: int = 768,
             tied=True, 
+            elementwise=False,
             name='pooler'
     ):
         super(LinearPooler, self).__init__()
         self.name = name
+        self.elementwise=elementwise    
         self.linear_q = nn.Linear(input_dim, output_dim)
         if tied:
             self.linear_p = self.linear_q
@@ -81,13 +74,12 @@ class LinearPooler(nn.Module):
             json.dump(self._config, f)
 
 
-class DHRModel(nn.Module):
+class DenseModel(nn.Module):
     def __init__(
             self,
             lm_q: PreTrainedModel,
             lm_p: PreTrainedModel,
             pooler: nn.Module = None,
-            term_weight_trans: nn.Module = None,
             model_args: ModelArguments = None,
             data_args: DataArguments = None,
             train_args: TrainingArguments = None,
@@ -97,9 +89,7 @@ class DHRModel(nn.Module):
         self.lm_q = lm_q
         self.lm_p = lm_p
         self.pooler = pooler
-        self.term_weight_trans = term_weight_trans
 
-        self.softmax = nn.Softmax(dim=-1)
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
 
         self.model_args = model_args
@@ -112,13 +102,6 @@ class DHRModel(nn.Module):
             self.process_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
 
-        # Todo: 
-        if model_args.combine_cls
-            self.lamb = 1
-        else:
-            self.lamb = 0
-        self.temperature = 1
-
     def forward(
             self,
             query: Dict[str, Tensor] = None,
@@ -127,87 +110,55 @@ class DHRModel(nn.Module):
     ):
 
 
+        q_hidden, q_reps = self.encode_query(query)
+        p_hidden, p_reps = self.encode_passage(passage)
 
-        q_lexical_reps, q_semantic_reps = self.encode_query(query)
-        p_lexical_reps, p_semantic_reps = self.encode_passage(passage)
-        import pdb; pdb.set_trace()  # breakpoint f7cb2d25 //
-        
-        if q_lexical_reps is None or p_lexical_reps is None:
-            return DHROutput(
-                q_lexical_reps = q_lexical_reps,
-                q_semantic_reps = q_semantic_reps,
-                p_lexical_reps = p_lexical_reps,
-                p_semantic_reps = p_semantic_reps,
+        if q_reps is None or p_reps is None:
+            return DenseOutput(
+                q_reps=q_reps,
+                p_reps=p_reps
             )
 
         if self.training:
             if self.train_args.negatives_x_device:
-                q_lexical_reps = self.dist_gather_tensor(q_lexical_reps)
-                p_lexical_reps = self.dist_gather_tensor(p_lexical_reps)
-                q_semantic_reps = self.dist_gather_tensor(q_semantic_reps)
-                p_semantic_reps = self.dist_gather_tensor(p_semantic_reps)
+                q_reps = self.dist_gather_tensor(q_reps)
+                p_reps = self.dist_gather_tensor(p_reps)
 
             effective_bsz = self.train_args.per_device_train_batch_size * self.world_size \
                 if self.train_args.negatives_x_device \
                 else self.train_args.per_device_train_batch_size
 
-            # lexical matching
-            lexical_scores = torch.matmul(q_lexical_reps, p_lexical_reps.transpose(0, 1))
-            lexical_scores = lexical_scores.view(effective_bsz, -1)
+            scores = torch.matmul(q_reps, p_reps.transpose(0, 1))
+            scores = scores.view(effective_bsz, -1)
 
-            # semantic matching
-            semantic_scores = torch.matmul(q_semantic_reps, p_semantic_reps.transpose(0, 1))
-            semantic_scores = semantic_scores.view(effective_bsz, -1)
-
-            # score fusion
-            scores = lexical_scores + self.lamb * semantic_scores
-            
             target = torch.arange(
                 scores.size(0),
                 device=scores.device,
                 dtype=torch.long
             )
             target = target * self.data_args.train_n_passages
-
-            loss = self.cross_entropy(scores * self.temperature, target)
-            # loss.backward()
-            # for i, parameter in enumerate(self.lm_q.parameters()):
-            #     if parameter.grad is None:
-            #         print("found unused param")
-
-
+            loss = self.cross_entropy(scores, target)
             if self.train_args.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
-            return DHROutput(
+            return DenseOutput(
                 loss=loss,
                 scores=scores,
-                q_lexical_reps=q_lexical_reps,
-                q_semantic_reps=q_semantic_reps,
-                p_lexical_reps=p_lexical_reps,
-                p_semantic_reps=p_semantic_reps,
+                q_reps=q_reps,
+                p_reps=p_reps
             )
 
         else:
             loss = None
             if query and passage:
-                # lexical matching
-                lexical_scores = (q_lexical_reps * p_lexical_reps).sum(1)
-
-                # semantic matching
-                semantic_scores = (q_semantic_reps * p_semantic_reps).sum(1)
-
-                # score fusion
-                scores = lexical_scores + lamb * semantic_scores # lambda=1
+                scores = (q_reps * p_reps).sum(1)
             else:
                 scores = None
 
-            return DHROutput(
+            return DenseOutput(
                 loss=loss,
                 scores=scores,
-                q_lexical_reps = q_lexical_reps,
-                q_semantic_reps = q_semantic_reps,
-                p_lexical_reps = p_lexical_reps,
-                p_semantic_reps = p_semantic_reps,
+                q_reps=q_reps,
+                p_reps=p_reps
             )
 
     def encode_passage(self, psg):
@@ -215,59 +166,23 @@ class DHRModel(nn.Module):
             return None, None
 
         psg_out = self.lm_p(**psg, return_dict=True)
-        p_seq_hidden = psg_out.hidden_states[-1]
-        p_cls_hidden = p_seq_hidden[:,0] # get [CLS] embeddings
-        p_logits = psg_out.logits[:,1:] # batch, seq, vocab
-
-        # Here we slightly modify the orginal SPLADEMAX, turning into dense vectors
-        p_term_weights = self.term_weight_trans(p_seq_hidden[:,1:]) # batch, seq, 1
-        p_logits = self.softmax(p_logits)
-        attention_mask = psg['attention_mask'][:,1:].unsqueeze(-1)
-        p_lexical_reps = torch.max((p_logits * p_term_weights) * attention_mask, dim=-2).values
-
-        
-        ## This is for uniCOIL
-        # p_full_term_weights = torch.zeros(p_logits.shape[0], p_logits.shape[1], p_logits.shape[2], dtype=torch.float16, device=p_logits.device) # (batch, seq, vocab)
-        # p_full_term_weights = torch.scatter(p_full_term_weights, dim=-1, index=psg.input_ids[:,1:,None], src=p_term_weights) # (batch, seq, vocab)
-
-        ## Original SPLADEMax
-        # attention_mask = psg['attention_mask'][:, 1:].unsqueeze(-1)
-        # p_lexical_reps = torch.max(torch.log(1 + torch.relu(p_logits)) * attention_mask, dim=1).values
-        
+        p_hidden = psg_out.last_hidden_state
         if self.pooler is not None:
-            p_semantic_reps = self.pooler(p=p_cls_hidden)  # D * d
+            p_reps = self.pooler(p=p_hidden[:, 0])  # D * d
         else:
-            p_semantic_reps = p_cls_hidden
-        return p_lexical_reps, p_semantic_reps
+            p_reps = p_hidden[:, 0]
+        return p_hidden, p_reps
 
     def encode_query(self, qry):
         if qry is None:
             return None, None
-
         qry_out = self.lm_q(**qry, return_dict=True)
-        q_seq_hidden = qry_out.hidden_states[-1] 
-        q_cls_hidden = q_seq_hidden[:,0] # get [CLS] embeddings
-        q_logits = qry_out.logits[:,1:] # batch, seq-1, vocab
-        
-        # Here we slightly modify the orginal SPLADEMAX, turning into dense vectors
-        q_term_weights = self.term_weight_trans(q_seq_hidden[:,1:]) # batch, seq, 1
-        q_logits = self.softmax(q_logits)
-        attention_mask = qry['attention_mask'][:,1:].unsqueeze(-1)
-        q_lexical_reps = torch.sum((q_logits * q_term_weights) * attention_mask, dim=-2)
-        
-        ## This is for uniCOIL
-        # q_full_term_weights = torch.zeros(q_logits.shape[0], q_logits.shape[1], q_logits.shape[2], dtype=torch.float16, device=q_logits.device) # (batch, len, vocab)
-        # q_full_term_weights = torch.scatter(q_full_term_weights, dim=-1, index=qry.input_ids[:,1:,None], src=q_term_weights) # fill value
-        
-        ## Original SPLADEMax
-        # attention_mask = qry['attention_mask'][:, 1:].unsqueeze(-1)
-        # q_lexical_reps = torch.max(torch.log(1 + torch.relu(q_logits)) * attention_mask, dim=1).values
-        
+        q_hidden = qry_out.last_hidden_state
         if self.pooler is not None:
-            q_semantic_reps = self.pooler(q=q_cls_hidden)
+            q_reps = self.pooler(q=q_hidden[:, 0])
         else:
-            q_semantic_reps = q_cls_hidden
-        return q_lexical_reps, q_semantic_reps
+            q_reps = q_hidden[:, 0]
+        return q_hidden, q_reps
 
     @staticmethod
     def build_pooler(model_args):
@@ -278,17 +193,6 @@ class DHRModel(nn.Module):
         )
         pooler.load(model_args.model_name_or_path)
         return pooler
-
-    @staticmethod
-    def build_term_weight_transform(model_args):
-        term_weight_trans = LinearPooler(
-            model_args.projection_in_dim,
-            1,
-            tied=not model_args.untie_encoder,
-            name="TermWeightTrans"
-        )
-        term_weight_trans.load(model_args.model_name_or_path)
-        return term_weight_trans
 
     @classmethod
     def build(
@@ -307,21 +211,21 @@ class DHRModel(nn.Module):
                     _qry_model_path = model_args.model_name_or_path
                     _psg_model_path = model_args.model_name_or_path
                 logger.info(f'loading query model weight from {_qry_model_path}')
-                lm_q = AutoModelForMaskedLM.from_pretrained(
+                lm_q = AutoModel.from_pretrained(
                     _qry_model_path,
                     **hf_kwargs
                 )
                 logger.info(f'loading passage model weight from {_psg_model_path}')
-                lm_p = AutoModelForMaskedLM.from_pretrained(
+                lm_p = AutoModel.from_pretrained(
                     _psg_model_path,
                     **hf_kwargs
                 )
             else:
-                lm_q = AutoModelForMaskedLM.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+                lm_q = AutoModel.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
                 lm_p = lm_q
         # load pre-trained
         else:
-            lm_q = AutoModelForMaskedLM.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
+            lm_q = AutoModel.from_pretrained(model_args.model_name_or_path, **hf_kwargs)
             lm_p = copy.deepcopy(lm_q) if model_args.untie_encoder else lm_q
 
         if model_args.add_pooler:
@@ -329,26 +233,10 @@ class DHRModel(nn.Module):
         else:
             pooler = None
 
-        term_weight_trans = cls.build_term_weight_transform(model_args)
-
-        # Todo: Freeze embedding layer
-        # check layer names: param_names = lm_q.state_dict()
-        # count = 0
-        # names =[]
-        # params = []
-        # for name, param in lm_q.named_parameters():
-        #     # names.append(name)
-        #     # params.append(param)
-        #     if 'word_embeddings' in name:
-        #         param.requires_grad = False
-        #         # count+=1
-
-
         model = cls(
             lm_q=lm_q,
             lm_p=lm_p,
             pooler=pooler,
-            term_weight_trans=term_weight_trans,
             model_args=model_args,
             data_args=data_args,
             train_args=train_args
@@ -366,7 +254,6 @@ class DHRModel(nn.Module):
 
         if self.model_args.add_pooler:
             self.pooler.save_pooler(output_dir)
-        self.term_weight_trans.save_pooler(output_dir)
 
     def dist_gather_tensor(self, t: Optional[torch.Tensor]):
         if t is None:
@@ -381,39 +268,37 @@ class DHRModel(nn.Module):
 
         return all_tensors
 
-class DHRModelForInference(DHRModel):
-    POOLER = LinearPooler  
+
+class DenseModelForInference(DenseModel):
+    POOLER_CLS = LinearPooler
 
     def __init__(
             self,
             lm_q: PreTrainedModel,
             lm_p: PreTrainedModel,
             pooler: nn.Module = None,
-            term_weight_trans: nn.Module = None,
             **kwargs,
     ):
         nn.Module.__init__(self)
         self.lm_q = lm_q
         self.lm_p = lm_p
         self.pooler = pooler
-        self.term_weight_trans = term_weight_trans
-        self.softmax = nn.Softmax(dim=-1)
 
     @torch.no_grad()
     def encode_passage(self, psg):
-        return super(DHRModelForInference, self).encode_passage(psg)
+        return super(DenseModelForInference, self).encode_passage(psg)
 
     @torch.no_grad()
     def encode_query(self, qry):
-        return super(DHRModelForInference, self).encode_query(qry)
+        return super(DenseModelForInference, self).encode_query(qry)
 
     # def forward(
     #         self,
     #         query: Dict[str, Tensor] = None,
     #         passage: Dict[str, Tensor] = None,
     # ):
-    #     q_lexical_reps, q_semantic_reps = self.encode_query(query)
-    #     p_lexical_reps, p_semantic_reps = self.encode_passage(passage)
+    #     q_hidden, q_reps = self.encode_query(query)
+    #     p_hidden, p_reps = self.encode_passage(passage)
     #     return DenseOutput(q_reps=q_reps, p_reps=p_reps)
 
     @classmethod
@@ -436,24 +321,24 @@ class DHRModelForInference(DHRModel):
             if os.path.exists(_qry_model_path):
                 logger.info(f'found separate weight for query/passage encoders')
                 logger.info(f'loading query model weight from {_qry_model_path}')
-                lm_q = AutoModelForMaskedLM.from_pretrained(
+                lm_q = AutoModel.from_pretrained(
                     _qry_model_path,
                     **hf_kwargs
                 )
                 logger.info(f'loading passage model weight from {_psg_model_path}')
-                lm_p = AutoModelForMaskedLM.from_pretrained(
+                lm_p = AutoModel.from_pretrained(
                     _psg_model_path,
                     **hf_kwargs
                 )
             else:
                 logger.info(f'try loading tied weight')
                 logger.info(f'loading model weight from {model_name_or_path}')
-                lm_q = AutoModelForMaskedLM.from_pretrained(model_name_or_path, **hf_kwargs)
+                lm_q = AutoModel.from_pretrained(model_name_or_path, **hf_kwargs)
                 lm_p = lm_q
         else:
             logger.info(f'try loading tied weight')
             logger.info(f'loading model weight from {model_name_or_path}')
-            lm_q = AutoModelForMaskedLM.from_pretrained(model_name_or_path, **hf_kwargs)
+            lm_q = AutoModel.from_pretrained(model_name_or_path, **hf_kwargs)
             lm_p = lm_q
 
         pooler_weights = os.path.join(model_name_or_path, 'pooler.pt')
@@ -462,29 +347,14 @@ class DHRModelForInference(DHRModel):
             logger.info(f'found pooler weight and configuration')
             with open(pooler_config) as f:
                 pooler_config_dict = json.load(f)
-            pooler = cls.POOLER(**pooler_config_dict)
+            pooler = cls.POOLER_CLS(**pooler_config_dict)
             pooler.load(model_name_or_path)
         else:
             pooler = None
 
-        TermWeightTrans_weights = os.path.join(model_name_or_path, 'TermWeightTrans.pt')
-        TermWeightTrans_config = os.path.join(model_name_or_path, 'TermWeightTrans_config.json')
-        if os.path.exists(TermWeightTrans_weights) and os.path.exists(TermWeightTrans_config):
-            logger.info(f'found TermWeightTrans weight and configuration')
-            with open(TermWeightTrans_config) as f:
-                TermWeightTrans_config_dict = json.load(f)
-            # Todo: add name to config
-            TermWeightTrans_config_dict['name'] = 'TermWeightTrans'
-            term_weight_trans = cls.POOLER(**TermWeightTrans_config_dict)
-            term_weight_trans.load(model_name_or_path)
-        else:
-            term_weight_trans = None
-
-
         model = cls(
             lm_q=lm_q,
             lm_p=lm_p,
-            pooler=pooler,
-            term_weight_trans=term_weight_trans
+            pooler=pooler
         )
         return model

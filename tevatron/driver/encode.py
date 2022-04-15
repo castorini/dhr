@@ -18,7 +18,6 @@ from transformers import (
 from tevatron.arguments import ModelArguments, DataArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import EncodeDataset, EncodeCollator
-from tevatron.DHR.modeling import DHRModelForInference, DHROutput
 from tevatron.datasets import HFQueryDataset, HFCorpusDataset
 from tevatron.DHR.utils import densify
 
@@ -58,11 +57,36 @@ def main():
         use_fast=False,
     )
 
-    model = DHRModelForInference.build(
-        model_args=model_args,
-        config=config,
-        cache_dir=model_args.cache_dir,
-    )
+    if (model_args.model).lower() == 'dhr':
+        from tevatron.DHR.modeling import DHRModelForInference
+        from tevatron.DHR.modeling import DHROutput as Output
+        logger.info("Encoding model DHR")
+        model = DHRModelForInference.build(
+            model_args=model_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    elif (model_args.model).lower() == 'dlr':
+        from tevatron.DHR.modeling import DHRModelForInference
+        from tevatron.DHR.modeling import DHROutput as Output
+        logger.info("Encoding model DLR")
+        model_args.combine_cls = False
+        model = DHRModelForInference.build(
+            model_args=model_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    elif (model_args.model).lower() == 'dense':
+        from tevatron.Dense.modeling import DenseModelForInference
+        from tevatron.Dense.modeling import DenseOutput as Output
+        logger.info("Encding model Dense (CLS)")
+        model = DenseModelForInference.build(
+            model_args=model_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    else:
+        raise ValueError('input model is not supported')
 
     text_max_length = data_args.q_max_len if data_args.encode_is_qry else data_args.p_max_len
     if data_args.encode_is_qry:
@@ -94,11 +118,16 @@ def main():
     offset = 0
 
     data_num = len(encode_dataset)
-    if combine_cls:
-        value_encoded = np.zeros((data_num, densified_dims + semantic_dims), dtype=np.float16)
-    else:
-        value_encoded = np.zeros((data_num, densified_dims), dtype=np.float16)
-    index_encoded = np.zeros((data_num, densified_dims), dtype=np.float16)
+    if (model_args.model).lower() == 'dense':
+        value_encoded = np.zeros((data_num, semantic_dims), dtype=np.float16)
+        index_encoded = 0
+    else: #DLR or DHR
+        if combine_cls:
+            value_encoded = np.zeros((data_num, densified_dims + semantic_dims), dtype=np.float16)
+        else:
+            value_encoded = np.zeros((data_num, densified_dims), dtype=np.float16)
+        index_encoded = np.zeros((data_num, densified_dims), dtype=np.float16)
+
     lookup_indices = []
     model = model.to(training_args.device)
     model.eval()
@@ -111,19 +140,25 @@ def main():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
                 if data_args.encode_is_qry:
-                    model_output: DHROutput = model(query=batch)
-                    q_value_reps, q_index_reps = densify(model_output.q_lexical_reps, densified_dims)
-                    value_encoded[offset: (offset + batch_size), :densified_dims] = q_value_reps.cpu().detach().numpy()
-                    if combine_cls:
-                        value_encoded[offset: (offset + batch_size), densified_dims:] = model_output.q_semantic_reps.cpu().detach().numpy()
-                    index_encoded[offset: (offset + batch_size), :densified_dims] = q_index_reps.cpu().detach().numpy().astype(np.uint8)
+                    model_output: Output = model(query=batch)
+                    if (model_args.model).lower() == 'dense':
+                        value_encoded[offset: (offset + batch_size), :densified_dims] = model_output.q_reps.cpu().detach().numpy()
+                    else:
+                        q_value_reps, q_index_reps = densify(model_output.q_lexical_reps, densified_dims)
+                        value_encoded[offset: (offset + batch_size), :densified_dims] = q_value_reps.cpu().detach().numpy()
+                        if combine_cls:
+                            value_encoded[offset: (offset + batch_size), densified_dims:] = model_output.q_semantic_reps.cpu().detach().numpy()
+                        index_encoded[offset: (offset + batch_size), :densified_dims] = q_index_reps.cpu().detach().numpy().astype(np.uint8)
                 else:
-                    model_output: DHROutput = model(passage=batch)
-                    p_value_reps, p_index_reps = densify(model_output.p_lexical_reps, densified_dims)
-                    value_encoded[offset: (offset + batch_size), :densified_dims] = p_value_reps.cpu().detach().numpy()
-                    if combine_cls:
-                        value_encoded[offset: (offset + batch_size), densified_dims:] = model_output.p_semantic_reps.cpu().detach().numpy()
-                    index_encoded[offset: (offset + batch_size), :densified_dims] = p_index_reps.cpu().detach().numpy().astype(np.uint8)
+                    model_output: Output = model(passage=batch)
+                    if (model_args.model).lower() == 'dense':
+                        value_encoded[offset: (offset + batch_size), :densified_dims] = model_output.p_reps.cpu().detach().numpy()
+                    else:
+                        p_value_reps, p_index_reps = densify(model_output.p_lexical_reps, densified_dims)
+                        value_encoded[offset: (offset + batch_size), :densified_dims] = p_value_reps.cpu().detach().numpy()
+                        if combine_cls:
+                            value_encoded[offset: (offset + batch_size), densified_dims:] = model_output.p_semantic_reps.cpu().detach().numpy()
+                        index_encoded[offset: (offset + batch_size), :densified_dims] = p_index_reps.cpu().detach().numpy().astype(np.uint8)
 
         offset += batch_size
 

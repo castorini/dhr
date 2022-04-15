@@ -8,11 +8,9 @@ from transformers import (
     set_seed,
 )
 
-from tevatron.arguments import ModelArguments, DataArguments, \
+from tevatron.arguments import ModelArguments, DataArguments, ColBERTModelArguments, \
     DenseTrainingArguments as TrainingArguments
 from tevatron.data import TrainDataset, TrainTASBDataset, QPCollator
-from tevatron.DHR.modeling import DHRModel
-from tevatron.ColBERT.modeling import ColBERT
 from tevatron.trainer import DenseTrainer as Trainer, GCTrainer
 from tevatron.datasets import HFTrainDataset, HFCorpusDataset
 
@@ -30,6 +28,8 @@ def main():
         model_args: ModelArguments
         data_args: DataArguments
         training_args: TrainingArguments
+
+
 
     if (
             os.path.exists(training_args.output_dir)
@@ -73,7 +73,33 @@ def main():
         use_fast=False,
     )
 
+    teacher_model = None
+    if model_args.tct:
+        if model_args.teacher_model_name_or_path is None:
+            raise ValueError(
+            f"when use --tct option, you should input --teacher_model_name_or_path"
+        )
+        # use default setting
+        teacher_model_args = ColBERTModelArguments()
+        teacher_model_args.model_name_or_path = model_args.teacher_model_name_or_path
+        colbert_config = AutoConfig.from_pretrained(
+            teacher_model_args.config_name if teacher_model_args.config_name else teacher_model_args.model_name_or_path,
+            num_labels=num_labels,
+            output_hidden_states=True, 
+            cache_dir=teacher_model_args.cache_dir,
+        )
+        
+        from tevatron.ColBERT.modeling import ColBERTForInference, ColBERTOutput
+        from tevatron.ColBERT.modeling import ColBERTOutput as Output
+        logger.info("Call model ColBERT as listwise teacher")
+        teacher_model = ColBERTForInference.build(
+            model_args=teacher_model_args,
+            config=colbert_config,
+            cache_dir=teacher_model_args.cache_dir,
+        )
+
     if (model_args.model).lower() == 'colbert':
+        from tevatron.ColBERT.modeling import ColBERT
         logger.info("Training model ColBERT")
         model = ColBERT.build(
             model_args,
@@ -83,8 +109,32 @@ def main():
             cache_dir=model_args.cache_dir,
         )
     elif (model_args.model).lower() == 'dhr':
+        from tevatron.DHR.modeling import DHRModel
         logger.info("Training model DHR")
         model = DHRModel.build(
+            model_args,
+            data_args,
+            training_args,
+            teacher_model,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    elif (model_args.model).lower() == 'dlr':
+        from tevatron.DHR.modeling import DHRModel
+        logger.info("Training model DLR")
+        model_args.combine_cls = False
+        model = DHRModel.build(
+            model_args,
+            data_args,
+            training_args,
+            teacher_model,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    elif (model_args.model).lower() == 'dense':
+        from tevatron.Dense.modeling import DenseModel
+        logger.info("Training model Dense (CLS)")
+        model = DenseModel.build(
             model_args,
             data_args,
             training_args,

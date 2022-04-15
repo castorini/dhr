@@ -79,6 +79,7 @@ class DHRModel(nn.Module):
             self,
             lm_q: PreTrainedModel,
             lm_p: PreTrainedModel,
+            teacher_model: PreTrainedModel = None,
             pooler: nn.Module = None,
             term_weight_trans: nn.Module = None,
             model_args: ModelArguments = None,
@@ -89,6 +90,7 @@ class DHRModel(nn.Module):
 
         self.lm_q = lm_q
         self.lm_p = lm_p
+        self.teacher_model = teacher_model
         self.pooler = pooler
         self.term_weight_trans = term_weight_trans
 
@@ -113,6 +115,12 @@ class DHRModel(nn.Module):
             self.lamb = 0
         self.temperature = 1
 
+
+        self.effective_bsz = self.train_args.per_device_train_batch_size * self.world_size \
+            if self.train_args.negatives_x_device \
+            else self.train_args.per_device_train_batch_size 
+        
+
     def forward(
             self,
             query: Dict[str, Tensor] = None,
@@ -124,6 +132,7 @@ class DHRModel(nn.Module):
 
         q_lexical_reps, q_semantic_reps = self.encode_query(query)
         p_lexical_reps, p_semantic_reps = self.encode_passage(passage)
+        
 
         if q_lexical_reps is None or p_lexical_reps is None:
             return DHROutput(
@@ -146,30 +155,57 @@ class DHRModel(nn.Module):
                 if self.train_args.negatives_x_device \
                 else self.train_args.per_device_train_batch_size
 
+
+
             
+
+
+            pairwise_teacher_loss = 0
+            listwise_teacher_loss = 0
+            hard_label_loss = 0
+
+            # tct kd 
+            # Todo: support cross gpus, 
             if self.model_args.kd:
                 if teacher_scores is None:
                     raise ValueError(f"No pairwise teacher score for knowledge distillation!")
+                
                 # lexical matching
-                q_lexical_reps = q_lexical_reps.view(effective_bsz, 1, -1)
-                p_lexical_reps = p_lexical_reps.view(effective_bsz, self.data_args.train_n_passages, -1)
-                lexical_scores = torch.matmul(q_lexical_reps, p_lexical_reps.transpose(2, 1)).squeeze()
+                lexical_scores = self.pairwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
 
                 # semantic matching
-                q_semantic_reps = q_semantic_reps.view(effective_bsz, 1, -1)
-                p_semantic_reps = p_semantic_reps.view(effective_bsz, self.data_args.train_n_passages, -1)
-                semantic_scores = torch.matmul(q_semantic_reps, p_semantic_reps.transpose(2, 1)).squeeze()
+                semantic_scores = self.pairwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
+                
+                scores = lexical_scores + self.lamb * semantic_scores
 
                 teacher_scores = self.softmax(teacher_scores)
-            else:
+                loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
+                
+            elif self.model_args.tct:
+                
                 # lexical matching
-                lexical_scores = torch.matmul(q_lexical_reps, p_lexical_reps.transpose(0, 1))
-                lexical_scores = lexical_scores.view(effective_bsz, -1)
-
+                lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
+                
                 # semantic matching
-                semantic_scores = torch.matmul(q_semantic_reps, p_semantic_reps.transpose(0, 1))
-                semantic_scores = semantic_scores.view(effective_bsz, -1)
+                semantic_scores = self.listwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
+                
+                scores = lexical_scores + self.lamb * semantic_scores
+                
+                with torch.no_grad(): 
+                    colbert_q_reps = self.teacher_model(query=query).q_reps
+                    colbert_p_reps = self.teacher_model(passage=passage).p_reps
 
+                    teacher_scores = torch.einsum('aik,bjk->abij', colbert_q_reps, colbert_p_reps) # (batch_size, n*batch_size, q_seq_len, p_seq_len)
+                    teacher_scores = torch.max(teacher_scores, -1).values # (batch_size, n*batch_size, q_seq_len)
+                    teacher_scores = torch.sum(teacher_scores, -1) # (batch_size, n*batch_size)
+
+                teacher_scores = self.softmax(teacher_scores)
+                loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
+            else:
+                lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
+                semantic_scores = self.listwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
+                scores = lexical_scores + self.lamb * semantic_scores
+            
                 teacher_scores = torch.arange(
                     lexical_scores.size(0),
                     device=lexical_scores.device,
@@ -178,14 +214,11 @@ class DHRModel(nn.Module):
                 teacher_scores = teacher_scores * self.data_args.train_n_passages
                 teacher_scores = torch.nn.functional.one_hot(teacher_scores, num_classes=lexical_scores.size(1)).float()
 
-            # loss
-            if self.model_args.joint_train:
-                scores = lexical_scores + self.lamb * semantic_scores
-                loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
-            else:
-                lexical_loss = self.kl_loss(nn.functional.log_softmax(lexical_scores, dim=-1), self.softmax(teacher_scores))
-                semantic_loss = self.kl_loss(nn.functional.log_softmax(semantic_scores, dim=-1), self.softmax(teacher_scores))
-                loss = (lexical_loss + semantic_loss)/2
+                hard_label_loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
+            
+
+               
+
 
             if self.train_args.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
@@ -220,6 +253,19 @@ class DHRModel(nn.Module):
                 p_lexical_reps = p_lexical_reps,
                 p_semantic_reps = p_semantic_reps,
             )
+
+    def pairwise_scores(self, q_reps, p_reps, effective_bsz):
+        q_reps = q_reps.view(effective_bsz, 1, -1)
+        p_reps = p_reps.view(effective_bsz, self.data_args.train_n_passages, -1)
+        scores = torch.matmul(q_reps, p_reps.transpose(2, 1)).squeeze()
+        return scores
+
+    def listwise_scores(self, q_reps, p_reps, effective_bsz):
+        scores = torch.matmul(q_reps, p_reps.transpose(0, 1))
+        scores = scores.view(effective_bsz, self.data_args.train_n_passages, -1)
+
+        scores = scores.view(effective_bsz, -1)
+        return scores
 
     def encode_passage(self, psg):
         if psg is None:
@@ -307,6 +353,7 @@ class DHRModel(nn.Module):
             model_args: ModelArguments,
             data_args: DataArguments,
             train_args: TrainingArguments,
+            teacher_model: PreTrainedModel=None, 
             **hf_kwargs,
     ):
         # load local
@@ -351,6 +398,7 @@ class DHRModel(nn.Module):
         model = cls(
             lm_q=lm_q,
             lm_p=lm_p,
+            teacher_model=teacher_model,
             pooler=pooler,
             term_weight_trans=term_weight_trans,
             model_args=model_args,

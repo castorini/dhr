@@ -60,7 +60,7 @@ def main():
     )
 
     if (model_args.model).lower() == 'colbert':
-        from tevatron.ColBERT.modeling import ColBERTForInference, ColBERTOutput
+        from tevatron.ColBERT.modeling import ColBERTForInference
         from tevatron.ColBERT.modeling import ColBERTOutput as Output
         logger.info("Evaluating model ColBERT")
         model = ColBERTForInference.build(
@@ -69,10 +69,29 @@ def main():
             cache_dir=model_args.cache_dir,
         )
     elif (model_args.model).lower() == 'dhr':
-        from tevatron.DHR.modeling import DHRModelForInference, DHROutput
+        from tevatron.DHR.modeling import DHRModelForInference
         from tevatron.DHR.modeling import DHROutput as Output
         logger.info("Evaluating model DHR")
         model = DHRModelForInference.build(
+            model_args=model_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    elif (model_args.model).lower() == 'dlr':
+        from tevatron.DHR.modeling import DHRModelForInference
+        from tevatron.DHR.modeling import DHROutput as Output
+        logger.info("Evaluating model DHR")
+        model_args.combine_cls = False
+        model = DHRModelForInference.build(
+            model_args=model_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
+    elif (model_args.model).lower() == 'dense':
+        from tevatron.Dense.modeling import DenseModelForInference
+        from tevatron.Dense.modeling import DenseOutput as Output
+        logger.info("Evaluating model Dense (CLS)")
+        model = DenseModelForInference.build(
             model_args=model_args,
             config=config,
             cache_dir=model_args.cache_dir,
@@ -121,6 +140,7 @@ def main():
                 for k, v in batch_psg_features.items():
                     batch_psg_features[k] = v.to(training_args.device)
                 model_output: Output = model(query=batch_qry_featutres, passage=batch_psg_features)
+        
         qids += batch_qry_ids
         candidiate_psg_ids += batch_psg_ids 
         scores += model_output.scores.cpu().numpy().tolist()
@@ -141,8 +161,8 @@ def main():
                 logging.warn("Read {} examples, Metrics so far:".format(num_examples))
                 logging.warn("  ".join(METRICS_MAP))
                 logging.warn(all_metrics / num_examples)
-                # if num_examples==200:
-                #     break
+                if num_examples==200:
+                    break
         # Write results
 
 
