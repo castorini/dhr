@@ -172,42 +172,37 @@ def main():
 
 	if args.use_gpu:
 		query_embs = torch.from_numpy(query_embs).cuda(0)
-		query_arg_idxs = torch.from_numpy(query_arg_idxs).cuda(0)
+
 	else:
 		query_embs = torch.from_numpy(query_embs.astype(np.float32))
-		query_arg_idxs = torch.from_numpy(query_arg_idxs)
+
 
 
 	
 	
 	with open(args.index_path, 'rb') as f:
 		corpus_embs, corpus_arg_idxs, docids=pickle.load(f)
-
 		doc_num_per_shrad = len(docids)//args.total_shrad
 		if args.shrad==(args.total_shrad-1):
 			corpus_embs = corpus_embs[doc_num_per_shrad*args.shrad:]
-			corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:]
 			docids = docids[doc_num_per_shrad*args.shrad:]
 			if args.fusion:
-				corpus_dense_reps = corpus_dense_reps[docids][doc_num_per_shrad*args.shrad:]
 				corpus_embs = np.concatenate([corpus_embs, corpus_dense_reps], axis=1)
 		else:
 			corpus_embs = corpus_embs[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
-			corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
 			docids = docids[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
 			if args.fusion:
 				corpus_dense_reps = corpus_dense_reps[docids][doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
 				corpus_embs = np.concatenate([corpus_embs, corpus_dense_reps], axis=1)
 		if args.use_gpu:
 			corpus_embs = torch.from_numpy(corpus_embs).cuda(0)
-			corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs).cuda(0)
 		else:
 			corpus_embs = torch.from_numpy(corpus_embs.astype(np.float32)) 
-			corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs)
+
 		# density = corpus_embs!=0
 		# density = density.sum(axis=1)
 		# torch.sum(density)/8841823/args.emb_dim
-		
+	
 
 	all_results = {}
 	all_scores = {}
@@ -223,80 +218,18 @@ def main():
 
 	start_time = time.time()
 	total_num_idx = 0
-	for i, (query_emb, query_arg_idx) in enumerate(zip(query_embs, query_arg_idxs)):
+	for i, query_emb in enumerate(query_embs):
 
-		qidx = i
-		if args.M==0:
-			total_num_idx+=args.emb_dim
-			candidate_sparse_embs = ((corpus_arg_idxs[:,:]==query_arg_idx)*corpus_embs[:,:args.emb_dim])					
+		qidx = i				
 
-			if args.combine_cls:
-				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-				del candidate_sparse_embs, candidate_dense_embs
-			else:
-				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
-				del candidate_sparse_embs
-			sort_idx = torch.argsort(scores, descending=True)[:args.topk]
-			sort_candidates = sort_idx
-			sort_scores = scores[sort_idx]
+		scores =  torch.einsum('ij,j->i',(corpus_embs, query_emb))
+
+		sort_idx = torch.argsort(scores, descending=True)[:args.topk]
+		sort_candidates = sort_idx
+		sort_scores = scores[sort_idx]
 
 			
-			torch.cuda.empty_cache()
-
-		else:
-			num_idx = int((query_emb[:args.emb_dim] > args.M).sum())
-			if args.combine_cls:
-				num_cls_idx = int((query_emb[args.emb_dim:] > args.M).sum())
-				important_cls_idx = torch.argsort(query_emb[args.emb_dim:], axis=0, descending=True).tolist()[:num_cls_idx]
-			if args.combine_cls:
-				total_num_idx += num_idx + num_cls_idx
-			else:
-				total_num_idx += num_idx 
-			if num_idx >40:
-				num_idx=40
-			if num_idx==0:
-				num_idx=1
-			important_idx = torch.argsort(query_emb[:args.emb_dim], axis=0, descending=True).tolist()[:num_idx]
-
-			
-			#Approximate GIN
-			candidate_sparse_embs = ((corpus_arg_idxs[:,important_idx]==query_arg_idx[important_idx])*corpus_embs[:,important_idx])
-			if args.combine_cls:
-
-				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
-			else:
-				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
-
-			# IN as an approximation ablation
-			# if args.add_cls:
-			# 	candidate_sparse_embs = corpus_embs[:,:args.emb_dim]
-			# 	candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-
-			# 	partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + 1*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-			# else:
-			# 	partial_scores = torch.einsum('ij,j->i',(corpus_embs, query_emb))
-
-			if args.rerank:
-				candidates = torch.argsort(partial_scores, descending=True)[:10*args.topk]
-				candidate_sparse_embs = ((corpus_arg_idxs[candidates,:]==query_arg_idx)*corpus_embs[candidates,:args.emb_dim])
-				# candidate_sparse_embs = torch.where((corpus_arg_idxs[candidates,:]==query_arg_idx),corpus_embs[candidates,:args.emb_dim],torch.zeros_like(corpus_embs[candidates,:args.emb_dim]))
-				if args.combine_cls:
-					candidate_dense_embs = corpus_embs[candidates,args.emb_dim:]
-					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + 1*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-				else:
-					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
-
-				sort_idx = torch.argsort(scores, descending=True)[:args.topk]
-				sort_candidates = candidates[sort_idx]
-				sort_scores = scores[sort_idx]
-
-				del important_idx, candidates, candidate_sparse_embs, scores, sort_idx
-				torch.cuda.empty_cache()
-			else:
-				sort_candidates = torch.argsort(partial_scores, descending=True)[:args.topk]
-				sort_scores = partial_scores[sort_candidates]
+		torch.cuda.empty_cache()
 
 		all_scores[qids[i]]=sort_scores.cpu().tolist()
 		all_results[qids[i]]=sort_candidates.cpu().tolist()

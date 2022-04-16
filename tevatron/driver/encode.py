@@ -126,7 +126,7 @@ def main():
             value_encoded = np.zeros((data_num, densified_dims + semantic_dims), dtype=np.float16)
         else:
             value_encoded = np.zeros((data_num, densified_dims), dtype=np.float16)
-        index_encoded = np.zeros((data_num, densified_dims), dtype=np.float16)
+        index_encoded = np.zeros((data_num, densified_dims), dtype=np.int8)
 
     lookup_indices = []
     model = model.to(training_args.device)
