@@ -97,6 +97,7 @@ class DHRModel(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
         self.kl_loss = nn.KLDivLoss(reduction="batchmean")
+        self.mse_loss = nn.MSELoss()
 
         self.model_args = model_args
         self.train_args = train_args
@@ -177,9 +178,12 @@ class DHRModel(nn.Module):
                 semantic_scores = self.pairwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
                 
                 scores = lexical_scores + self.lamb * semantic_scores
+                base = scores[:,0][:,None].repeat((1,8))
+                scores -= base
+                loss = self.mse_loss(scores, teacher_scores)
 
-                teacher_scores = self.softmax(teacher_scores)
-                loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
+                # teacher_scores = self.softmax(teacher_scores)
+                # loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
                 
             elif self.model_args.tct:
                 
@@ -214,7 +218,7 @@ class DHRModel(nn.Module):
                 teacher_scores = teacher_scores * self.data_args.train_n_passages
                 teacher_scores = torch.nn.functional.one_hot(teacher_scores, num_classes=lexical_scores.size(1)).float()
 
-                hard_label_loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
+                loss = self.kl_loss(nn.functional.log_softmax(scores * self.temperature, dim=-1), teacher_scores)
             
 
                

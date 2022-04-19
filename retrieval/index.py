@@ -162,6 +162,7 @@ def main():
 				print('Load index: {}...'.format(corpus_file))
 				corpus_emb, corpus_arg_idx, docid=pickle.load(f)
 				# Todo: change corpus_arg_idxs to uint8
+				# corpus_arg_idx = corpus_arg_idx.astype(np.int8)
 				corpus_embs.append(corpus_emb)
 				corpus_arg_idxs.append(corpus_arg_idx)
 				docids += docid
@@ -171,6 +172,7 @@ def main():
 		except:
 			corpus_arg_idxs = 0
 		corpus_embs = np.concatenate(corpus_embs, axis=0)
+
 		with open(os.path.join(args.index_path, args.index_prefix + '.index.pt'), 'wb') as f:
 			pickle.dump([corpus_embs, corpus_arg_idxs, docids], f, protocol=4)
 
