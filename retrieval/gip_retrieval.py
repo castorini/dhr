@@ -7,7 +7,7 @@ import math
 from progressbar import *
 # from util import load_tfrecords_and_index, read_id_dict, faiss_index
 from multiprocessing import Pool, Manager
-import pickle
+import pickle5 as pickle
 import torch
 import torch.nn as nn
 torch.cuda.set_device(0)
@@ -125,6 +125,7 @@ def main():
 	parser.add_argument("--use_gpu", action='store_true')
 	parser.add_argument("--rerank", action='store_true')
 	parser.add_argument("--fusion", action='store_true')
+	parser.add_argument("--lamda", type=float, default=1)
 	parser.add_argument("--total_shrad", type=int, default=1)
 	parser.add_argument("--shrad", type=int, default=0)
 	parser.add_argument("--run_name", type=str, default='h2oloo')
@@ -157,7 +158,7 @@ def main():
 			query_dense_reps = pickle.load(f)
 			qid2query_dense_reps = {}
 			for row_num in range(query_dense_reps.shape[0]):
-				qid = int(query_dense_reps.iloc[row_num,0])
+				qid = query_dense_reps.iloc[row_num,0]
 				query_dense_rep = query_dense_reps.iloc[row_num,2].astype(np.float16)
 				qid2query_dense_reps[qid] = query_dense_rep
 			query_dense_reps = []
@@ -165,7 +166,7 @@ def main():
 				query_dense_reps.append(np.expand_dims(qid2query_dense_reps[qid], axis=0))
 			query_dense_reps = np.concatenate(query_dense_reps, axis=0)
 
-	# 	query_embs = np.concatenate([np.expand_dims(qids, axis=1), query_embs*100, query_dense_reps], axis=1).astype(np.float16) #concat qid in to embeddings
+		query_embs = np.concatenate([query_embs, args.lamda*query_dense_reps], axis=1).astype(np.float16) #concat qid in to embeddings
 
 	# else:
 	# 	query_embs = np.concatenate([np.expand_dims(qids, axis=1), query_embs], axis=1).astype(np.float16) #concat qid in to embeddings
@@ -188,16 +189,20 @@ def main():
 			corpus_embs = corpus_embs[doc_num_per_shrad*args.shrad:]
 			corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:]
 			docids = docids[doc_num_per_shrad*args.shrad:]
+			
 			if args.fusion:
-				corpus_dense_reps = corpus_dense_reps[docids][doc_num_per_shrad*args.shrad:]
-				corpus_embs = np.concatenate([corpus_embs, corpus_dense_reps], axis=1)
+				docidxs = []
+				for doc in docids:
+					docidxs.append(int(doc))
+				corpus_dense_reps = corpus_dense_reps[docidxs][doc_num_per_shrad*args.shrad:]
+				corpus_embs = np.concatenate([corpus_embs, args.lamda*corpus_dense_reps], axis=1)
 		else:
 			corpus_embs = corpus_embs[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
 			corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
 			docids = docids[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
 			if args.fusion:
-				corpus_dense_reps = corpus_dense_reps[docids][doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
-				corpus_embs = np.concatenate([corpus_embs, corpus_dense_reps], axis=1)
+				corpus_dense_reps = corpus_dense_reps[ocidxs][doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
+				corpus_embs = np.concatenate([corpus_embs, args.lamda*corpus_dense_reps], axis=1)
 		if args.use_gpu:
 			corpus_embs = torch.from_numpy(corpus_embs).cuda(0)
 			corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs).cuda(0)
@@ -270,7 +275,7 @@ def main():
 				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
 
 			# IN as an approximation ablation
-			# if args.add_cls:
+			# if args.combine_cls:
 			# 	candidate_sparse_embs = corpus_embs[:,:args.emb_dim]
 			# 	candidate_dense_embs = corpus_embs[:,args.emb_dim:]
 
@@ -284,7 +289,7 @@ def main():
 				# candidate_sparse_embs = torch.where((corpus_arg_idxs[candidates,:]==query_arg_idx),corpus_embs[candidates,:args.emb_dim],torch.zeros_like(corpus_embs[candidates,:args.emb_dim]))
 				if args.combine_cls:
 					candidate_dense_embs = corpus_embs[candidates,args.emb_dim:]
-					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + 1*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
+					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 				else:
 					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
 

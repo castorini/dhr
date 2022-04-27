@@ -314,7 +314,7 @@ class DHRModel(nn.Module):
         q_term_weights = self.term_weight_trans(q_seq_hidden[:,1:]) # batch, seq, 1
         q_logits = self.softmax(q_logits)
         attention_mask = qry['attention_mask'][:,1:].unsqueeze(-1)
-        q_lexical_reps = torch.sum((q_logits * q_term_weights) * attention_mask, dim=-2)
+        q_lexical_reps = torch.max((q_logits * q_term_weights) * attention_mask, dim=-2).values
         
         ## This is for uniCOIL
         # q_full_term_weights = torch.zeros(q_logits.shape[0], q_logits.shape[1], q_logits.shape[2], dtype=torch.float16, device=q_logits.device) # (batch, len, vocab)
