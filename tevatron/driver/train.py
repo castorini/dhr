@@ -152,7 +152,7 @@ def main():
                                    cache_dir=data_args.data_cache_dir or model_args.cache_dir)
     ### Todo: set augument, using TASB training dataset
     # train_dataset = TrainDataset(data_args, train_dataset.process(), tokenizer)
-    train_dataset = TrainTASBDataset(data_args, train_dataset.process(), corpus_dataset.process(), tokenizer)
+    train_dataset = TrainTASBDataset(data_args, model_args.kd, train_dataset.process(), corpus_dataset.process(), tokenizer)
 
     trainer_cls = GCTrainer if training_args.grad_cache else Trainer
     trainer = trainer_cls(

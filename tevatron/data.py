@@ -91,6 +91,7 @@ class TrainTASBDataset(Dataset):
     def __init__(
             self,
             data_args: DataArguments,
+            kd,
             dataset: datasets.Dataset,
             corpus: datasets.Dataset,
             tokenizer: PreTrainedTokenizer,
@@ -102,6 +103,7 @@ class TrainTASBDataset(Dataset):
         self.trainer = trainer
         self.data_args = data_args
         self.tasb_sampling = data_args.tasb_sampling
+        self.kd = kd
 
         if self.data_args.corpus_dir is None:
             raise ValueError('You should input --corpus_dir with files split*.json')
@@ -201,7 +203,6 @@ class TrainTASBDataset(Dataset):
     def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
         _hashed_seed = hash(item + self.trainer.args.seed)
         if self.tasb_sampling:
-            
             # make sure the same query cluster gathered in the same batch
             random.seed(self.trainer.state.global_step)
             cluster_num = random.randint(0, self.cluster_num-1)
@@ -211,9 +212,14 @@ class TrainTASBDataset(Dataset):
             item = random.choices(self.qidx_cluster[cluster_num]['qidx'])[0]
 
             group = self.train_data[item]
-            return self.output_qp_with_score(group, _hashed_seed)
         else:
             group = self.train_data[item]
+        
+        if self.kd:
+            import pdb; pdb.set_trace()  # breakpoint e41f7ddf //
+            
+            return self.output_qp_with_score(group, _hashed_seed)
+        else:
             return self.output_qp(group, _hashed_seed)
         
 
