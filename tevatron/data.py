@@ -215,9 +215,7 @@ class TrainTASBDataset(Dataset):
         else:
             group = self.train_data[item]
         
-        if self.kd:
-            import pdb; pdb.set_trace()  # breakpoint e41f7ddf //
-            
+        if self.kd:            
             return self.output_qp_with_score(group, _hashed_seed)
         else:
             return self.output_qp(group, _hashed_seed)
