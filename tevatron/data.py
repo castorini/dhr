@@ -176,6 +176,7 @@ class TrainTASBDataset(Dataset):
 
         pairs = []
         negative_size = self.data_args.train_n_passages - 1
+
         for i in range(negative_size):
             bin_pairs = random.choices(bins_pairs, k=1)[0]
             pairs.append(random.choices(bin_pairs, k=1)[0])
@@ -184,7 +185,7 @@ class TrainTASBDataset(Dataset):
         pos_psg_id = group['positive_pids'][pos_psg_idx]
         pos_psg = self.corpus[int(pos_psg_id)]['text']
         encoded_passages.append(self.create_one_example(pos_psg))
-
+        
         for pair in pairs:
             neg_psg_idx = int(pair[1])
             neg_psg_id = group['negative_pids'][neg_psg_idx]
@@ -200,12 +201,13 @@ class TrainTASBDataset(Dataset):
     def __getitem__(self, item) -> Tuple[BatchEncoding, List[BatchEncoding]]:
         _hashed_seed = hash(item + self.trainer.args.seed)
         if self.tasb_sampling:
-            random.seed(_hashed_seed) 
-            # make sure the same query cluster gathered in the same batch
-            # random.seed(self.trainer.state.global_step)
-            cluster_num = random.randint(0, self.cluster_num-1)
-            # sampling different queries in a batch
             
+            # make sure the same query cluster gathered in the same batch
+            random.seed(self.trainer.state.global_step)
+            cluster_num = random.randint(0, self.cluster_num-1)
+            
+            #sampling different queries in a batch
+            random.seed(_hashed_seed) 
             item = random.choices(self.qidx_cluster[cluster_num]['qidx'])[0]
 
             group = self.train_data[item]

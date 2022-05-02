@@ -56,7 +56,7 @@ def main():
         cache_dir=model_args.cache_dir,
         use_fast=False,
     )
-
+    
     if (model_args.model).lower() == 'dhr':
         from tevatron.DHR.modeling import DHRModelForInference
         from tevatron.DHR.modeling import DHROutput as Output

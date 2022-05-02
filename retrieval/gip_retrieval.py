@@ -211,7 +211,7 @@ def main():
 			corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs)
 		# density = corpus_embs!=0
 		# density = density.sum(axis=1)
-		# torch.sum(density)/8841823/args.emb_dim
+		# print(torch.sum(density)/8841823/args.emb_dim)
 		
 
 	all_results = {}
@@ -271,6 +271,7 @@ def main():
 
 				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
 				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
+				# partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 			else:
 				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
 
