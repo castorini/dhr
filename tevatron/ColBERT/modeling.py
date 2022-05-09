@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ColBERTOutput(ModelOutput):
-    q_reps: Tensor = None
-    p_reps: Tensor = None
+    q_seq_reps: Tensor = None
+    p_seq_reps: Tensor = None
+    q_cls: Tensor = None
+    p_cls: Tensor = None
     loss: Tensor = None
     scores: Tensor = None
 
@@ -107,21 +109,26 @@ class ColBERT(nn.Module):
             query: Dict[str, Tensor] = None,
             passage: Dict[str, Tensor] = None,
             teacher_scores: Tensor = None,
+            is_teacher = False
     ):
 
-        q_hidden, q_reps = self.encode_query(query)
-        p_hidden, p_reps = self.encode_passage(passage)
+        q_cls, q_seq_reps = self.encode_query(query)
+        p_cls, p_seq_reps = self.encode_passage(passage)
 
-        if q_reps is None or p_reps is None:
+        if q_seq_reps is None or p_seq_reps is None:
             return ColBERTOutput(
-                q_reps=q_reps,
-                p_reps=p_reps
+                q_seq_reps=q_seq_reps,
+                p_seq_reps=p_seq_reps,
+                q_cls=q_cls,
+                p_cls=p_cls
             )
 
         if self.training:
             if self.train_args.negatives_x_device:
-                q_reps = self.dist_gather_tensor(q_reps)
-                p_reps = self.dist_gather_tensor(p_reps)
+                q_seq_reps = self.dist_gather_tensor(q_seq_reps)
+                p_seq_reps = self.dist_gather_tensor(p_seq_reps)
+                q_cls = self.dist_gather_tensor(q_cls)
+                p_cls = self.dist_gather_tensor(p_cls)
                 if teacher_scores is not None:
                     teacher_scores = self.dist_gather_tensor(teacher_scores)
 
@@ -129,32 +136,30 @@ class ColBERT(nn.Module):
                 if self.train_args.negatives_x_device \
                 else self.train_args.per_device_train_batch_size
 
-            if self.model_args.kd:
-                if teacher_scores is None:
-                    raise ValueError(f"No teacher score for knowledge distillation!")
+            # if self.model_args.kd:
+            #     if teacher_scores is None:
+            #         raise ValueError(f"No teacher score for knowledge distillation!")
 
-                q_reps_ = q_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
-                p_reps_ = p_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
-                scores = torch.einsum('aimk,ajnk->aijmn', q_reps_, p_reps_)
-                scores = torch.max(scores, -1).values 
-                scores = torch.sum(scores, -1) 
-                scores = scores.squeeze()
-                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores))
+            #     q_seq_reps_ = q_seq_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
+            #     p_seq_reps_ = p_seq_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
+            #     scores = torch.einsum('aimk,ajnk->aijmn', q_seq_reps_, p_seq_reps_)
+            #     scores = torch.max(scores, -1).values 
+            #     scores = torch.sum(scores, -1) 
+            #     scores = scores.squeeze()
+            #     loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores))
 
-            else:
-                # Maxsim scores: p_res (batch_size, q_seq_len, dim), q_reps (n*batch_size, p_seq_len, dim)
-                scores = torch.einsum('aik,bjk->abij', q_reps, p_reps) # (batch_size, n*batch_size, q_seq_len, p_seq_len)
-                scores = torch.max(scores, -1).values # (batch_size, n*batch_size, q_seq_len)
-                scores = torch.sum(scores, -1) # (batch_size, n*batch_size)
-                scores = scores.view(effective_bsz, -1)
+            # else:
 
-                target = torch.arange(
-                    scores.size(0),
-                    device=scores.device,
-                    dtype=torch.long
-                )
-                target = target * self.data_args.train_n_passages
-                loss = self.cross_entropy(scores, target)
+            scores = self.listwise_maxsim(q_seq_reps, p_seq_reps) + self.listwise_maxsim(q_cls, p_cls)
+            
+
+            target = torch.arange(
+                scores.size(0),
+                device=scores.device,
+                dtype=torch.long
+            )
+            target = target * self.data_args.train_n_passages
+            loss = self.cross_entropy(scores, target)
 
 
             if self.train_args.negatives_x_device:
@@ -162,25 +167,82 @@ class ColBERT(nn.Module):
             return ColBERTOutput(
                 loss=loss,
                 scores=scores,
-                q_reps=q_reps,
-                p_reps=p_reps
+                q_seq_reps=q_seq_reps,
+                p_seq_reps=p_seq_reps,
+                q_cls=q_cls,
+                p_cls=p_cls
             )
 
         else:
             loss = None
             if query and passage:
-                scores = torch.einsum('aik,ajk->aij', q_reps, p_reps) 
-                scores = torch.max(scores, -1).values
-                scores = torch.sum(scores, -1) 
+                if is_teacher:
+                    scores = self.listwise_maxsim(q_seq_reps, p_seq_reps) + self.listwise_maxsim(q_cls, p_cls)
+                else:
+                    scores = torch.einsum('aik,ajk->aij', q_seq_reps, p_seq_reps) 
+                    scores = torch.max(scores, -1).values
+                    scores = torch.sum(scores, -1) + (q_cls * p_cls).sum(-1).sum(-1)
             else:
                 scores = None
 
             return ColBERTOutput(
                 loss=loss,
                 scores=scores,
-                q_reps=q_reps,
-                p_reps=p_reps
+                q_seq_reps=q_seq_reps,
+                p_seq_reps=p_seq_reps,
+                q_cls=q_cls,
+                p_cls=p_cls
             )
+
+    # def encode_passage(self, psg):
+    #     if psg is None:
+    #         return None, None
+
+    #     psg_out = self.lm_p(**psg, return_dict=True)
+    #     p_hidden = psg_out.last_hidden_state
+    #     attention_mask = psg['attention_mask'][:,:,None]
+
+    #     if self.pooler is not None:
+    #         p_reps = self.pooler(p=p_hidden)  # D * d
+    #     else:
+    #         p_reps = p_hidden
+
+    #     p_hidden *= attention_mask
+    #     return p_hidden, p_reps
+
+    # def encode_query(self, qry):
+    #     if qry is None:
+    #         return None, None
+    #     qry_out = self.lm_q(**qry, return_dict=True)
+    #     q_hidden = qry_out.last_hidden_state
+    #     q_length = qry['attention_mask'].sum(-1)[:,None,None]
+    #     attention_mask = qry['attention_mask'][:,:,None]
+
+    #     if self.pooler is not None:
+    #         q_reps = self.pooler(q=q_hidden)
+    #     else:
+    #         q_reps = q_hidden
+
+    #     q_hidden *= attention_mask
+    #     q_hidden /= q_length*32 # normalize by query length
+    #     return q_hidden, q_reps
+
+    def pairwise_maxsim(self, q_seq_reps, p_seq_reps):
+        q_seq_reps_ = q_seq_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
+        p_seq_reps_ = p_seq_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
+        scores = torch.einsum('aimk,ajnk->aijmn', q_seq_reps_, p_seq_reps_)
+        scores = torch.max(scores, -1).values 
+        scores = torch.sum(scores, -1) 
+        scores = scores.squeeze()
+        return scores
+
+    def listwise_maxsim(self, q_seq_reps, p_seq_reps):
+        # Maxsim scores: p_res (batch_size, q_seq_len, dim), q_reps (n*batch_size, p_seq_len, dim)
+        scores = torch.einsum('aik,bjk->abij', q_seq_reps, p_seq_reps) # (batch_size, n*batch_size, q_seq_len, p_seq_len)
+        scores = torch.max(scores, -1).values # (batch_size, n*batch_size, q_seq_len)
+        scores = torch.sum(scores, -1) # (batch_size, n*batch_size)
+        return scores
+
 
     def encode_passage(self, psg):
         if psg is None:
@@ -193,10 +255,10 @@ class ColBERT(nn.Module):
         if self.pooler is not None:
             p_reps = self.pooler(p=p_hidden)  # D * d
         else:
-            p_reps = p_hidden[:, 0]
-        # p_reps = torch.nn.functional.normalize(p_reps, p=2, dim=-1)
-        p_hidden *= attention_mask
-        return p_hidden, p_reps
+            p_reps = p_hidden
+
+        p_reps *= attention_mask
+        return p_reps[:,:1], p_reps[:,1:]
 
     def encode_query(self, qry):
         if qry is None:
@@ -211,10 +273,9 @@ class ColBERT(nn.Module):
         else:
             q_reps = q_hidden
 
-        # q_reps = torch.nn.functional.normalize(q_reps, p=2, dim=-1)
-        q_hidden *= attention_mask
-        q_hidden /= q_length*32
-        return q_hidden, q_reps
+        q_reps *= attention_mask
+        q_reps =  q_reps/q_length*32 # normalize by query length
+        return q_reps[:,:1], q_reps[:,1:]
 
     @staticmethod
     def build_pooler(model_args):

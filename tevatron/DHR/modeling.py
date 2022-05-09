@@ -116,7 +116,7 @@ class DHRModel(nn.Module):
             self.lamb = 1
         else:
             self.lamb = 0
-        self.temperature = 1
+        self.temperature = 4
 
 
         self.effective_bsz = self.train_args.per_device_train_batch_size * self.world_size \
@@ -167,8 +167,13 @@ class DHRModel(nn.Module):
             listwise_teacher_loss = 0
             hard_label_loss = 0
 
+
             # lexical matching
-            lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
+            if self.model_args.dlr_out_dim is not None:
+                lexical_scores = self.listwise_gip_scores(q_lexical_reps, p_lexical_reps, effective_bsz)                
+            else:
+                lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
+
             # semantic matching
             semantic_scores = self.listwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
             # fusion
@@ -176,37 +181,28 @@ class DHRModel(nn.Module):
 
             # tct kd 
             # Todo: support cross gpus, 
-            if self.model_args.kd:
-                loss = 0
-                if teacher_scores is None:
-                    raise ValueError(f"No pairwise teacher score for knowledge distillation!")
+            loss = 0
+            if self.model_args.kd or self.model_args.tct:
+                if teacher_scores is not None:
+                    pairwise_leixal_scores = lexical_scores.view(1,-1)
+                    pairwise_leixal_scores = torch.nn.functional.pad(input=pairwise_leixal_scores, pad=(0, scores.shape[1]), mode='constant', value=0)
+                    pairwise_leixal_scores = pairwise_leixal_scores.view(scores.shape[0], -1)[:,:teacher_scores.shape[1]]
+
+                    pairwise_semantic_scores = semantic_scores.view(1,-1)
+                    pairwise_semantic_scores = torch.nn.functional.pad(input=pairwise_semantic_scores, pad=(0, scores.shape[1]), mode='constant', value=0)
+                    pairwise_semantic_scores = pairwise_semantic_scores.view(scores.shape[0], -1)[:,:teacher_scores.shape[1]]
+
+                    pairwise_scores = pairwise_leixal_scores + self.lamb * pairwise_semantic_scores
+                    loss += self.kl_loss(nn.functional.log_softmax(pairwise_semantic_scores, dim=-1), self.softmax(teacher_scores*self.temperature))
                 
                 if self.model_args.tct:
                     self.teacher_model.eval()
                     with torch.no_grad(): 
-                        colbert_q_reps = self.teacher_model(query=query).q_reps
-                        colbert_p_reps = self.teacher_model(passage=passage).p_reps
-
-                        tct_teacher_scores = torch.einsum('aik,bjk->abij', colbert_q_reps, colbert_p_reps) # (batch_size, n*batch_size, q_seq_len, p_seq_len)
-                        tct_teacher_scores = torch.max(tct_teacher_scores, -1).values # (batch_size, n*batch_size, q_seq_len)
-                        tct_teacher_scores = torch.sum(tct_teacher_scores, -1) # (batch_size, n*batch_size)
-
-                    loss += self.kl_loss(nn.functional.log_softmax(scores , dim=-1), self.softmax(tct_teacher_scores))
+                        colbert_output = self.teacher_model(query=query, passage=passage, is_teacher=True)
+                        tct_teacher_scores = colbert_output.scores
+                    loss += self.kl_loss(nn.functional.log_softmax(scores , dim=-1), self.softmax(tct_teacher_scores*self.temperature))
                 
                 
-                pairwise_scores = scores.view(1,-1)
-                pairwise_scores = torch.nn.functional.pad(input=pairwise_scores, pad=(0, scores.shape[1]), mode='constant', value=0)
-                pairwise_scores = pairwise_scores.view(scores.shape[0], -1)[:,:teacher_scores.shape[1]]
-                
-                # lexical matching
-                # lexical_scores = self.pairwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
-                
-                # # semantic matching
-                # semantic_scores = self.pairwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
-                
-                # # fusion
-                # scores = lexical_scores + self.lamb * semantic_scores
-
                 # base = scores[:,0][:,None].repeat((1,8))
                 # scores -= base
                 # loss = self.mse_loss(scores, teacher_scores)
@@ -215,24 +211,19 @@ class DHRModel(nn.Module):
                 # teacher_scores = teacher_scores.view(-1)[:-scores.shape[1]]
                 # teacher_scores = teacher_scores.view(scores.shape[0], -1)
 
-                loss += self.kl_loss(nn.functional.log_softmax(pairwise_scores, dim=-1), self.softmax(teacher_scores))
-                
-                
-            else:
-                lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
-                semantic_scores = self.listwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
-                scores = lexical_scores + self.lamb * semantic_scores
+                # loss += self.kl_loss(nn.functional.log_softmax(semantic_scores, dim=-1), self.softmax(teacher_scores)) 
             
-                teacher_scores = torch.arange(
+            else:
+                hard_label_scores = torch.arange(
                     lexical_scores.size(0),
                     device=lexical_scores.device,
                     dtype=torch.long
                 )
-                teacher_scores = teacher_scores * self.data_args.train_n_passages
-                teacher_scores = torch.nn.functional.one_hot(teacher_scores, num_classes=lexical_scores.size(1)).float()
+                hard_label_scores = hard_label_scores * self.data_args.train_n_passages
+                hard_label_scores = torch.nn.functional.one_hot(hard_label_scores, num_classes=lexical_scores.size(1)).float()
 
-                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), teacher_scores)
-            
+                loss += self.kl_loss(nn.functional.log_softmax(scores, dim=-1), hard_label_scores)
+
 
                
 
@@ -251,11 +242,14 @@ class DHRModel(nn.Module):
         else:
             loss = None
             if query and passage:
-                q_value_reps, q_index_reps = densify(q_lexical_reps, self.model_args.projection_out_dim)
-                p_value_reps, p_index_reps = densify(p_lexical_reps, self.model_args.projection_out_dim)
-                p_value_reps = (p_index_reps==q_index_reps)*p_value_reps
                 # lexical matching
-                lexical_scores = (q_value_reps * p_value_reps).sum(1)
+                if self.model_args.dlr_out_dim is not None:
+                    q_value_reps, q_index_reps = densify(q_lexical_reps, self.model_args.dlr_out_dim)
+                    p_value_reps, p_index_reps = densify(p_lexical_reps, self.model_args.dlr_out_dim)
+                    p_value_reps = (p_index_reps==q_index_reps)*p_value_reps
+                    lexical_scores = (q_value_reps * p_value_reps).sum(1)
+                else:
+                    lexical_scores = (q_lexical_reps * p_lexical_reps).sum(1)
 
                 # semantic matching
                 semantic_scores = (q_semantic_reps * p_semantic_reps).sum(1)
@@ -281,8 +275,8 @@ class DHRModel(nn.Module):
         return scores
 
     def pairwise_gip_scores(self, q_reps, p_reps, effective_bsz):
-        q_value_reps, q_index_reps = densify(q_reps, self.model_args.projection_out_dim)
-        p_value_reps, p_index_reps = densify(p_reps, self.model_args.projection_out_dim)
+        q_value_reps, q_index_reps = densify(q_reps, self.model_args.dlr_out_dim)
+        p_value_reps, p_index_reps = densify(p_reps, self.model_args.dlr_out_dim)
 
         q_value_reps = q_value_reps.view(effective_bsz, 1, -1)
         q_index_reps = q_index_reps.view(effective_bsz, 1, -1)
@@ -300,6 +294,21 @@ class DHRModel(nn.Module):
         scores = scores.view(effective_bsz, self.data_args.train_n_passages, -1)
 
         scores = scores.view(effective_bsz, -1)
+        return scores
+
+    def listwise_gip_scores(self, q_reps, p_reps, effective_bsz):
+        q_value_reps, q_index_reps = densify(q_reps, self.model_args.dlr_out_dim)
+        p_value_reps, p_index_reps = densify(p_reps, self.model_args.dlr_out_dim)
+
+        q_value_reps = q_value_reps.view(effective_bsz, 1, -1)
+        q_index_reps = q_index_reps.view(effective_bsz, 1, -1)
+
+        p_value_reps = p_value_reps[None,:,:].repeat((effective_bsz,1,1))
+        p_index_reps = p_index_reps[None,:,:].repeat((effective_bsz,1,1))
+
+        p_value_reps = (p_index_reps==q_index_reps)*p_value_reps
+        
+        scores = torch.matmul(q_value_reps, p_value_reps.transpose(2, 1)).squeeze()
         return scores
 
     def encode_passage(self, psg):

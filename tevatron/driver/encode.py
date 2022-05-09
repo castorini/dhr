@@ -112,7 +112,10 @@ def main():
     )
 
     # todo: add to arg, check cls dims and densified dims
-    densified_dims = model_args.projection_out_dim
+    if model_args.dlr_out_dim is None:
+        densified_dims = 768
+    else:
+        densified_dims = model_args.dlr_out_dim
     semantic_dims = model_args.projection_out_dim
     combine_cls = model_args.combine_cls
     offset = 0

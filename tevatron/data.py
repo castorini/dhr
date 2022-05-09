@@ -175,7 +175,7 @@ class TrainTASBDataset(Dataset):
         scores = []
         qids_bin_pairs = group['bin_pairs']
         bins_pairs = random.choices(qids_bin_pairs, k=1)[0]
-
+        
         pairs = []
         negative_size = self.data_args.train_n_passages - 1
 

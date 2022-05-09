@@ -118,6 +118,7 @@ def main():
 	parser.add_argument("--emb_dim", type=int, default=768)
 	parser.add_argument("--M", type=float, default=0.1)
 	parser.add_argument("--topk", type=int, default=1000)
+	parser.add_argument("--agip_topk", type=int, default=10000)
 	parser.add_argument("--combine_cls", action='store_true')
 	parser.add_argument("--brute_force", action='store_true')
 	parser.add_argument("--index_path", type=str, required=True)
@@ -212,7 +213,7 @@ def main():
 		# density = corpus_embs!=0
 		# density = density.sum(axis=1)
 		# print(torch.sum(density)/8841823/args.emb_dim)
-		
+	
 
 	all_results = {}
 	all_scores = {}
@@ -237,7 +238,7 @@ def main():
 
 			if args.combine_cls:
 				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
+				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 				del candidate_sparse_embs, candidate_dense_embs
 			else:
 				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
@@ -246,7 +247,6 @@ def main():
 			sort_candidates = sort_idx
 			sort_scores = scores[sort_idx]
 
-			
 			torch.cuda.empty_cache()
 
 		else:
@@ -270,7 +270,7 @@ def main():
 			if args.combine_cls:
 
 				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
+				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
 				# partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 			else:
 				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
@@ -285,12 +285,13 @@ def main():
 			# 	partial_scores = torch.einsum('ij,j->i',(corpus_embs, query_emb))
 
 			if args.rerank:
-				candidates = torch.argsort(partial_scores, descending=True)[:10*args.topk]
+				candidates = torch.argsort(partial_scores, descending=True)[:args.agip_topk]
+
 				candidate_sparse_embs = ((corpus_arg_idxs[candidates,:]==query_arg_idx)*corpus_embs[candidates,:args.emb_dim])
 				# candidate_sparse_embs = torch.where((corpus_arg_idxs[candidates,:]==query_arg_idx),corpus_embs[candidates,:args.emb_dim],torch.zeros_like(corpus_embs[candidates,:args.emb_dim]))
 				if args.combine_cls:
 					candidate_dense_embs = corpus_embs[candidates,args.emb_dim:]
-					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
+					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 				else:
 					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
 
