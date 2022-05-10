@@ -4,13 +4,12 @@ import glob
 # os.environ['OMP_NUM_THREADS'] = str(32)
 import numpy as np
 import math
-from progressbar import *
+from tqdm import tqdm
 # from util import load_tfrecords_and_index, read_id_dict, faiss_index
 from multiprocessing import Pool, Manager
 import pickle5 as pickle
 import torch
 import torch.nn as nn
-torch.cuda.set_device(0)
 import time
 import faiss
 
@@ -135,6 +134,8 @@ def main():
 	if not args.use_gpu:
 		import mkl
 		mkl.set_num_threads(36)
+	else:
+		torch.cuda.set_device(0)
 
 
 	
@@ -222,14 +223,10 @@ def main():
 
 
 
-	widgets = ['Progress: ',Percentage(), ' ', Bar('#'),' ', Timer(),
-		' ', ETA(), ' ', FileTransferSpeed()]
-	pbar = ProgressBar(widgets=widgets, maxval=10*len(query_embs)).start()
-	print('search ...')
 
 	start_time = time.time()
 	total_num_idx = 0
-	for i, (query_emb, query_arg_idx) in enumerate(zip(query_embs, query_arg_idxs)):
+	for i, (query_emb, query_arg_idx) in tqdm(enumerate(zip(query_embs, query_arg_idxs)), total=len(query_embs), desc=f"search"):
 
 		qidx = i
 		if args.M==0:
@@ -238,7 +235,7 @@ def main():
 
 			if args.combine_cls:
 				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
+				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 				del candidate_sparse_embs, candidate_dense_embs
 			else:
 				scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
@@ -251,6 +248,7 @@ def main():
 
 		else:
 			num_idx = int((query_emb[:args.emb_dim] > args.M).sum())
+
 			if args.combine_cls:
 				num_cls_idx = int((query_emb[args.emb_dim:] > args.M).sum())
 				important_cls_idx = torch.argsort(query_emb[args.emb_dim:], axis=0, descending=True).tolist()[:num_cls_idx]
@@ -270,7 +268,7 @@ def main():
 			if args.combine_cls:
 
 				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
+				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
 				# partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 			else:
 				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
@@ -291,7 +289,7 @@ def main():
 				# candidate_sparse_embs = torch.where((corpus_arg_idxs[candidates,:]==query_arg_idx),corpus_embs[candidates,:args.emb_dim],torch.zeros_like(corpus_embs[candidates,:args.emb_dim]))
 				if args.combine_cls:
 					candidate_dense_embs = corpus_embs[candidates,args.emb_dim:]
-					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
+					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 				else:
 					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
 
@@ -308,7 +306,6 @@ def main():
 		all_scores[qids[i]]=sort_scores.cpu().tolist()
 		all_results[qids[i]]=sort_candidates.cpu().tolist()
 		# print(i)
-		pbar.update(10 * i + 1)
 		# if i==5:
 		# 	break
 	average_num_idx = total_num_idx/query_embs.shape[0]
@@ -334,16 +331,12 @@ def main():
 	# pool.join()
 
 
-	widgets = ['Progress: ',Percentage(), ' ', Bar('#'),' ', Timer(),
-		' ', ETA(), ' ', FileTransferSpeed()]
-	pbar = ProgressBar(widgets=widgets, maxval=10*len(query_embs)).start()
 
-	print('write results ...')
 	if args.total_shrad==1:
 		fout = open('result.trec', 'w')
 	else:
 		fout = open('result{}.trec'.format(args.shrad), 'w')
-	for i, query_id in enumerate(all_results):
+	for i, query_id in tqdm(enumerate(all_results), total=len(all_results), desc=f"write results"):
 		# query_id = query_ids[qidx]
 		result = all_results[query_id]
 		score = all_scores[query_id]
@@ -351,7 +344,6 @@ def main():
 			docid = docids[docidx]
 			if (docid!=query_id):
 				fout.write('{} Q0 {} {} {} {}\n'.format(query_id, docid, rank+1, score[rank], args.run_name))
-		pbar.update(10 * i + 1)
 	fout.close()
 
 

@@ -11,40 +11,57 @@ from multiprocessing import Pool, Manager, Queue
 import multiprocessing
 import os
 from tqdm import tqdm
-logger = logging.getLogger(__name__)
+from transformers import AutoModelForMaskedLM, AutoTokenizer
+from pyserini.encode import QueryEncoder, TokFreqQueryEncoder, UniCoilQueryEncoder
+from .densify_corpus import densify, whole_word_matching
 
-def densify(data, dim, omission_num):
-    value = np.zeros((dim), dtype=np.float16)
-    index = np.zeros((dim), dtype=np.int16)
-    collision_num = 0
-    for i, (token_id, weight) in enumerate(zip(data['token_id'],data['weights'])):
-        if token_id < omission_num:
-            continue
-        else:
-            slice_num = (token_id - omission_num)%dim
-            index_num = (token_id - omission_num)//dim
-            if value[slice_num]==0:
-                value[slice_num] = weight
-                index[slice_num] = index_num
-            else:
-                # collision
-                collision_num += 1
-                if value[slice_num] < weight:
-                    value[slice_num] = weight
-                    index[slice_num] = index_num
-    return value, index, collision_num
+# omission_num = \
+#         {'bm25': 472,
+#          'deepimpact': 502,
+#          'unicoil': 570, 
+#          'splade': 570}
+
+# whole_word_matching = \
+#         {'bm25': True,
+#          'deepimpact': True,
+#          'unicoil': True, 
+#          'splade': True}
+
+# def densify(vector, dim, whole_word_matching, omission_num, args):
+#     value = np.zeros((dim), dtype=np.float16)
+#     if whole_word_matching:
+#         index = np.zeros((dim), dtype=np.int16)
+#     else:
+#         index = np.zeros((dim), dtype=np.int8)
+#     collision_num = 0
+#     for i, (token_id, weight) in enumerate(vector.items()):
+#         if token_id < omission_num:
+#             continue
+#         else:
+#             slice_num = (token_id - omission_num)%dim
+#             index_num = (token_id - omission_num)//dim
+#             if value[slice_num]==0:
+#                 value[slice_num] = weight
+#                 index[slice_num] = index_num
+#             else:
+#                 # collision
+#                 collision_num += 1
+#                 if value[slice_num] < weight:
+#                     value[slice_num] = weight
+#                     index[slice_num] = index_num
+#     return value, index, collision_num
 
     
 
 def main():
     parser = argparse.ArgumentParser(
         description='Transform corpus into wordpiece corpus')
-    parser.add_argument('--index_path', required=True, help='anserini index path')
-    parser.add_argument('--query_path', required=True, help='directory with json files')
+    parser.add_argument('--model', required=True, help='bm25, deepimpact, unicoil or splade')
+    parser.add_argument('--tokenizer', required=False, default="bert-base-uncased", help='anserini index path or transformer tokenizer')
+    parser.add_argument('--query_path', required=True, help='query tsv file')
     parser.add_argument('--output_dims', type=int, required=False, default=768)
-    parser.add_argument('--output_dir', required=True, help='output pickle path')
+    parser.add_argument('--output_dir', required=True, help='output pickle directory')
     parser.add_argument('--prefix', required=True, help='index name prefix')
-    parser.add_argument('--analyze' , action='store_true', help='turn on when densifying BM25')
     args = parser.parse_args()
 
 
@@ -59,15 +76,27 @@ def main():
     if not os.path.exists(densified_vector_dir):
         os.mkdir(densified_vector_dir)
     
-    analyzer = Analyzer(get_lucene_analyzer())
-    index_reader = IndexReader(args.index_path)
-    total_num_vocabs = index_reader.stats()['unique_terms']  
     
-    term2idx = {}
-    for idx, term in tqdm(enumerate(index_reader.terms()), desc=f"read index terms"): 
-        term2idx[term.term] = idx
+    args.model = args.model.lower()
+    token2id = {}
+    if (args.model == 'bm25') or (args.model == 'deepimpact'):
+        analyzer = Analyzer(get_lucene_analyzer())
+        tokenizer = IndexReader(args.tokenizer)
+        for idx, token in tqdm(enumerate(tokenizer.terms()), desc=f"read index terms"): 
+            token2id[token.term] = idx
+        if args.model == 'bm25':
+            analyze = True
+        else:
+            analyze = False
+        query_encoder = None        
+    elif (args.model == 'unicoil') or (args.model == 'splade'):
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+        token2id = tokenizer.vocab
+        if args.model == 'unicoil':
+            query_encoder = UniCoilQueryEncoder('castorini/unicoil-msmarco-passage')
+    else:
+        raise ValueError('We cannot handle you input --model')
 
-    omission_num = total_num_vocabs%args.output_dims
 
     
 
@@ -83,53 +112,32 @@ def main():
     index_encoded = np.zeros((data_num, args.output_dims), dtype=np.int16)
 
     qids = []
+    data = {}
     total_collision_num = 0
     with open(args.query_path, 'r') as f:
         for i, line in enumerate(f):
             qid, query = line.strip().split('\t')
-            if args.analyze:
-                analyzed_query_terms = analyzer.analyze(query)
+            if query_encoder is None:
+                if analyze:
+                    analyzed_query_terms = analyzer.analyze(query)
+                else:
+                    analyzed_query_terms = query.split(' ')
+                # use tf as term weight
+                vector = defaultdict(int)
+                for analyzed_query_term in analyzed_query_terms:
+                    vector[analyzed_query_term] += 1
             else:
-                analyzed_query_terms = query.split(' ')
-            
-            id2weight = defaultdict(int)
-            for analyzed_query_term in analyzed_query_terms:
-                try:
-                    term_idx = term2idx[analyzed_query_term]
-                    id2weight[term_idx] += 1
-                except:
-                    continue
+                vector = query_encoder.encode(query)
 
-            data = {'token_id':[], 'weights':[]}
-            for (token_id, weight) in id2weight.items():
-                data['token_id'].append(token_id)
-                data['weights'].append(weight)
+            data['vector'] = vector
             
             qids.append(qid)
-            value, index, collision_num = densify(data, args.output_dims, omission_num)
+            value, index, collision_num = densify(data, args.output_dims, whole_word_matching[args.model] , token2id, args)
             total_collision_num += collision_num
             value_encoded[i] = value
             index_encoded[i] = index  
 
-            # ###########for debug###############
-            # text = f"Form view is the primary means of adding and modifying data in tables. \
-            # You can also change the design of a form in this view. format . \
-            # Specifies how data is displayed and printed. An Access database provides standard formats for specific data types, \
-            # as does an Access project for the equivalent SQL data types. You can also create custom formats." 
-            # analyzed_query_terms = analyzer.analyze(text)
-            
-            # id2weight = defaultdict(int)
-            # for analyzed_query_term in analyzed_query_terms:
-            #     try:
-            #         term_idx = term2idx[analyzed_query_term]
-            #         id2weight[term_idx] += 1
-            #     except:
-            #         continue
-            # data = {'token_id':[], 'weights':[]}
-            # for (token_id, weight) in id2weight.items():
-            #     data['token_id'].append(token_id)
-            #     data['weights'].append(weight)
-            # value, index, collision_num = densify(data, args.output_dims, omission_num)
+
 
     print('Total {} collisions with {} queries'.format(total_collision_num, i+1))
     file_name = args.prefix + '.' + (args.query_path).split('/')[-1].replace('tsv','pt')

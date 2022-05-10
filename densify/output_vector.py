@@ -16,23 +16,17 @@ if __name__ == '__main__':
 	searcher = SimpleSearcher(args.index_path)
 	total_num_docs = searcher.num_docs
 	
-	term_dict = {}
-	for idx, term in tqdm(enumerate(index_reader.terms()), desc=f"read index terms"): 
-		term_dict[term.term] = idx
+	# term_dict = {}
+	# for idx, term in tqdm(enumerate(index_reader.terms()), desc=f"read index terms"): 
+	# 	term_dict[term.term] = idx
 	
 	fout = open(args.output_path, 'w')
 	for i in tqdm(range(total_num_docs), total=total_num_docs, desc=f"compute bm25 vector"): 
 		docid = searcher.doc(i).docid()
 		tf = index_reader.get_document_vector(docid)
-		vocab_ids = []
-		weights = []
-		for term, weight in tf.items():
-			vocab_ids.append(term_dict[term])
-			if args.tf_only:
-				weights.append(weight)
-			else:		
-				weights.append(index_reader.compute_bm25_term_weight(docid, term, analyzer=None))
-
-		output_dict = {'id': docid, 'token_id': vocab_ids, 'weights': weights}
+		vector = {}
+		for term in tf:
+			vector[term] = index_reader.compute_bm25_term_weight(docid, term, analyzer=None)
+		output_dict = {'id': docid, 'vector': vector}
 		fout.write(json.dumps(output_dict) + '\n')
 	fout.close()
