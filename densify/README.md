@@ -3,11 +3,12 @@ The repo is to demonstrate how to densify existing sparse lexical retrievers for
 
 # Densifying BM25
 ## Data Prepare
-Folloing the [instruction](https://github.com/castorini/anserini/blob/master/docs/experiments-msmarco-passage.md), we first download MSMARCO passage collection and query files. Then, convert the collection.tsv into json file in ${COLLECTION_PATH} for pyserini index, and put queries.dev.small.tsv file into ${Q_PATH}.
+Folloing the [instruction](https://github.com/castorini/anserini/blob/master/docs/experiments-msmarco-passage.md), we first download MSMARCO passage collection and query files. Then, convert the collection.tsv into json file in ${COLLECTION_PATH} for pyserini index, and put queries.dev.small.tsv file into ${Q_DIR}.
 ```shell=bash
-export COLLECTION_PATH
-export INDEX_PATH
-export VECTOR_DIR
+export COLLECTION_PATH=need_your_assignment
+export INDEX_PATH=need_your_assignment
+export VECTOR_DIR=need_your_assignment
+export Q_DIR=need_your_assignment
 export MODEL=BM25
 export DLRDIM=768
 export CORPUS=msmarco-passage
@@ -49,7 +50,7 @@ python -m densify.densify_query \
     --model bm25 \
     --prefix ${CORPUS} \
     --tokenizer ${INDEX_PATH} \
-    --query_path ${Q_PATH}/queries.${SPLIT}.tsv \ \
+    --query_path ${Q_DIR}/queries.${SPLIT}.tsv \ \
     --output_dir ${DLR_PATH} \
     --output_dims ${DLRDIM} \
 ```
@@ -103,7 +104,7 @@ python -m densify.densify_corpus \
 python -m densify.densify_query \
     --model ${MODEL} \
     --prefix ${CORPUS} \
-    --query_path ${Q_PATH}/queries.${SPLIT}.tsv \ \
+    --query_path ${Q_DIR}/queries.${SPLIT}.tsv \ \
     --output_dir ${DLR_PATH} \
     --output_dims ${DLRDIM} \
 ```

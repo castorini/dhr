@@ -15,43 +15,6 @@ from transformers import AutoModelForMaskedLM, AutoTokenizer
 from pyserini.encode import QueryEncoder, TokFreqQueryEncoder, UniCoilQueryEncoder
 from .densify_corpus import densify, whole_word_matching
 
-# omission_num = \
-#         {'bm25': 472,
-#          'deepimpact': 502,
-#          'unicoil': 570, 
-#          'splade': 570}
-
-# whole_word_matching = \
-#         {'bm25': True,
-#          'deepimpact': True,
-#          'unicoil': True, 
-#          'splade': True}
-
-# def densify(vector, dim, whole_word_matching, omission_num, args):
-#     value = np.zeros((dim), dtype=np.float16)
-#     if whole_word_matching:
-#         index = np.zeros((dim), dtype=np.int16)
-#     else:
-#         index = np.zeros((dim), dtype=np.int8)
-#     collision_num = 0
-#     for i, (token_id, weight) in enumerate(vector.items()):
-#         if token_id < omission_num:
-#             continue
-#         else:
-#             slice_num = (token_id - omission_num)%dim
-#             index_num = (token_id - omission_num)//dim
-#             if value[slice_num]==0:
-#                 value[slice_num] = weight
-#                 index[slice_num] = index_num
-#             else:
-#                 # collision
-#                 collision_num += 1
-#                 if value[slice_num] < weight:
-#                     value[slice_num] = weight
-#                     index[slice_num] = index_num
-#     return value, index, collision_num
-
-    
 
 def main():
     parser = argparse.ArgumentParser(
@@ -97,8 +60,6 @@ def main():
     else:
         raise ValueError('We cannot handle you input --model')
 
-
-    
 
     f = open(args.query_path, 'r')
     print('count line number')
