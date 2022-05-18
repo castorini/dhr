@@ -268,7 +268,7 @@ def main():
 			if args.combine_cls:
 
 				candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
+				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
 				# partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 			else:
 				partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
@@ -289,7 +289,7 @@ def main():
 				# candidate_sparse_embs = torch.where((corpus_arg_idxs[candidates,:]==query_arg_idx),corpus_embs[candidates,:args.emb_dim],torch.zeros_like(corpus_embs[candidates,:args.emb_dim]))
 				if args.combine_cls:
 					candidate_dense_embs = corpus_embs[candidates,args.emb_dim:]
-					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
+					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
 				else:
 					scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
 

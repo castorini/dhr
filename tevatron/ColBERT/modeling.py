@@ -92,7 +92,7 @@ class ColBERT(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.kl_loss = nn.KLDivLoss(reduction="batchmean")
         self.cross_entropy = nn.CrossEntropyLoss(reduction='mean')
-
+        self.temperature = 1
 
         self.model_args = model_args
         self.train_args = train_args
@@ -136,30 +136,27 @@ class ColBERT(nn.Module):
                 if self.train_args.negatives_x_device \
                 else self.train_args.per_device_train_batch_size
 
-            # if self.model_args.kd:
-            #     if teacher_scores is None:
-            #         raise ValueError(f"No teacher score for knowledge distillation!")
-
-            #     q_seq_reps_ = q_seq_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
-            #     p_seq_reps_ = p_seq_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
-            #     scores = torch.einsum('aimk,ajnk->aijmn', q_seq_reps_, p_seq_reps_)
-            #     scores = torch.max(scores, -1).values 
-            #     scores = torch.sum(scores, -1) 
-            #     scores = scores.squeeze()
-            #     loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores))
-
-            # else:
 
             scores = self.listwise_maxsim(q_seq_reps, p_seq_reps) + self.listwise_maxsim(q_cls, p_cls)
-            
+            if self.model_args.kd:
+                if teacher_scores is None:
+                    raise ValueError(f"No teacher score for knowledge distillation!")
 
-            target = torch.arange(
-                scores.size(0),
-                device=scores.device,
-                dtype=torch.long
-            )
-            target = target * self.data_args.train_n_passages
-            loss = self.cross_entropy(scores, target)
+                teacher_scores = torch.nn.functional.pad(input=teacher_scores * self.temperature, pad=(0, scores.shape[1]), mode='constant', value=-20)
+                teacher_scores = teacher_scores.view(-1)[:-scores.shape[1]]
+                teacher_scores = teacher_scores.view(scores.shape[0], -1)
+
+                loss = self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores)) 
+
+            else:
+
+                target = torch.arange(
+                    scores.size(0),
+                    device=scores.device,
+                    dtype=torch.long
+                )
+                target = target * self.data_args.train_n_passages
+                loss = self.cross_entropy(scores, target)
 
 
             if self.train_args.negatives_x_device:
@@ -177,6 +174,11 @@ class ColBERT(nn.Module):
             loss = None
             if query and passage:
                 if is_teacher:
+                    if self.train_args.negatives_x_device:
+                        q_seq_reps = self.dist_gather_tensor(q_seq_reps)
+                        p_seq_reps = self.dist_gather_tensor(p_seq_reps)
+                        q_cls = self.dist_gather_tensor(q_cls)
+                        p_cls = self.dist_gather_tensor(p_cls)
                     scores = self.listwise_maxsim(q_seq_reps, p_seq_reps) + self.listwise_maxsim(q_cls, p_cls)
                 else:
                     scores = torch.einsum('aik,ajk->aij', q_seq_reps, p_seq_reps) 
@@ -194,40 +196,9 @@ class ColBERT(nn.Module):
                 p_cls=p_cls
             )
 
-    # def encode_passage(self, psg):
-    #     if psg is None:
-    #         return None, None
-
-    #     psg_out = self.lm_p(**psg, return_dict=True)
-    #     p_hidden = psg_out.last_hidden_state
-    #     attention_mask = psg['attention_mask'][:,:,None]
-
-    #     if self.pooler is not None:
-    #         p_reps = self.pooler(p=p_hidden)  # D * d
-    #     else:
-    #         p_reps = p_hidden
-
-    #     p_hidden *= attention_mask
-    #     return p_hidden, p_reps
-
-    # def encode_query(self, qry):
-    #     if qry is None:
-    #         return None, None
-    #     qry_out = self.lm_q(**qry, return_dict=True)
-    #     q_hidden = qry_out.last_hidden_state
-    #     q_length = qry['attention_mask'].sum(-1)[:,None,None]
-    #     attention_mask = qry['attention_mask'][:,:,None]
-
-    #     if self.pooler is not None:
-    #         q_reps = self.pooler(q=q_hidden)
-    #     else:
-    #         q_reps = q_hidden
-
-    #     q_hidden *= attention_mask
-    #     q_hidden /= q_length*32 # normalize by query length
-    #     return q_hidden, q_reps
 
     def pairwise_maxsim(self, q_seq_reps, p_seq_reps):
+        effective_bsz = q_seq_reps.shape[0]
         q_seq_reps_ = q_seq_reps.view(effective_bsz, 1, -1, self.model_args.projection_out_dim)
         p_seq_reps_ = p_seq_reps.view(effective_bsz, self.data_args.train_n_passages, -1, self.model_args.projection_out_dim)
         scores = torch.einsum('aimk,ajnk->aijmn', q_seq_reps_, p_seq_reps_)
@@ -369,6 +340,9 @@ class ColBERTForInference(ColBERT):
             self,
             lm_q: PreTrainedModel,
             lm_p: PreTrainedModel,
+            model_args,
+            data_args,
+            train_args,
             pooler: nn.Module = None,
             **kwargs,
     ):
@@ -376,7 +350,15 @@ class ColBERTForInference(ColBERT):
         self.lm_q = lm_q
         self.lm_p = lm_p
         self.pooler = pooler
-
+        self.model_args = model_args
+        self.data_args = data_args
+        self.train_args = train_args
+        if train_args is not None:
+            if train_args.negatives_x_device:
+                if not dist.is_initialized():
+                    raise ValueError('Distributed training has not been initialized for representation all gather.')
+                self.process_rank = dist.get_rank()
+                self.world_size = dist.get_world_size()
     @torch.no_grad()
     def encode_passage(self, psg):
         return super(ColBERTForInference, self).encode_passage(psg)
@@ -448,6 +430,9 @@ class ColBERTForInference(ColBERT):
         model = cls(
             lm_q=lm_q,
             lm_p=lm_p,
-            pooler=pooler
+            pooler=pooler,
+            model_args=model_args,
+            data_args=data_args,
+            train_args=train_args
         )
         return model

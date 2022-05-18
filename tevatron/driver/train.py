@@ -94,6 +94,8 @@ def main():
         logger.info("Call model ColBERT as listwise teacher")
         teacher_model = ColBERTForInference.build(
             model_args=teacher_model_args,
+            data_args=data_args,
+            train_args=training_args,
             config=colbert_config,
             cache_dir=teacher_model_args.cache_dir,
         )
