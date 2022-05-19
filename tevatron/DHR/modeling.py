@@ -182,31 +182,33 @@ class DHRModel(nn.Module):
 
             loss = 0
 
-            # passage centric regularization (pc)
-            pc_lexical_scores = self.listwise_pc_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
-            pc_semantic_scores = self.listwise_pc_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
-            pc_scores = pc_lexical_scores + pc_semantic_scores
-
-            # hard_label_scores = torch.arange(
-            #     lexical_scores.size(0),
-            #     device=lexical_scores.device,
-            #     dtype=torch.long
-            # )
-            # hard_label_scores = hard_label_scores * self.data_args.train_n_passages
-
-            pc_label_scores = torch.arange(
-                pc_scores.size(0),
-                device=pc_scores.device,
-                dtype=torch.long
-            )
-            pc_label_scores = pc_label_scores * self.data_args.train_n_passages
-            pc_label_scores = torch.nn.functional.one_hot(pc_label_scores, num_classes=pc_scores.size(1)).float()
-
-            loss += self.kl_loss(nn.functional.log_softmax(pc_scores/4, dim=-1), pc_label_scores)
+            
 
             # tct kd 
             # Todo: support cross gpus, 
             if self.model_args.kd or self.model_args.tct:
+
+                # passage centric regularization (pc)
+                pc_lexical_scores = self.listwise_pc_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
+                pc_semantic_scores = self.listwise_pc_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
+                pc_scores = pc_lexical_scores + pc_semantic_scores
+
+                # hard_label_scores = torch.arange(
+                #     lexical_scores.size(0),
+                #     device=lexical_scores.device,
+                #     dtype=torch.long
+                # )
+                # hard_label_scores = hard_label_scores * self.data_args.train_n_passages
+
+                pc_label_scores = torch.arange(
+                    pc_scores.size(0),
+                    device=pc_scores.device,
+                    dtype=torch.long
+                )
+                pc_label_scores = pc_label_scores * self.data_args.train_n_passages
+                pc_label_scores = torch.nn.functional.one_hot(pc_label_scores, num_classes=pc_scores.size(1)).float()
+
+                loss += self.kl_loss(nn.functional.log_softmax(pc_scores/4, dim=-1), pc_label_scores)
                 
                 if self.model_args.tct:
                     # lexical matching
@@ -224,10 +226,10 @@ class DHRModel(nn.Module):
                     with torch.no_grad(): 
                         colbert_output = self.teacher_model(query=query, passage=passage, is_teacher=True)
                         tct_teacher_scores = colbert_output.scores
-
+                    
                     loss += self.kl_loss(nn.functional.log_softmax(scores , dim=-1), self.softmax(tct_teacher_scores * self.temperature))
 
-
+                    
                     
                     
 

@@ -84,7 +84,7 @@ class ColBERTModelArguments:
     combine_cls: bool = field(default=False)
     add_pooler: bool = field(default=True)
     projection_in_dim: int = field(default=768)
-    projection_out_dim: int = field(default=128)
+    projection_out_dim: int = field(default=768)
 
     # for Jax training
     dtype: Optional[str] = field(

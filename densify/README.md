@@ -70,7 +70,7 @@ python -m retrieval.gip_retrieval \
   --query_emb_path ${DLR_PATH}/encoding/queries/queries.${CORPUS}.${SPLIT}.pt \
   --emb_dim ${DLRDIM} \
   --index_path ${DLR_PATH}/encoding/index/${CORPUS}.index.pt \
-  --M 1 \
+  --theta 1 \
   --rerank \
   --use_gpu \
 ```
@@ -124,7 +124,7 @@ python -m retrieval.gip_retrieval \
   --query_emb_path ${DLR_PATH}/encoding/queries/queries.${CORPUS}.${SPLIT}.pt \
   --emb_dim ${DLRDIM} \
   --index_path ${DLR_PATH}/encoding/index/${CORPUS}.index.pt \
-  --M 1 \
+  --theta 1 \
   --rerank \
   --use_gpu \
 ```
