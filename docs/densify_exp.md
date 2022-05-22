@@ -3,7 +3,7 @@ The repo is to demonstrate how to densify existing sparse lexical retrievers for
 
 # Densifying BM25
 ## Data Prepare
-Folloing the [instruction](https://github.com/castorini/anserini/blob/master/docs/experiments-msmarco-passage.md), we first download MSMARCO passage collection and query files. Then, convert the collection.tsv into json file in ${COLLECTION_PATH} for pyserini index, and put queries.dev.small.tsv file into ${Q_DIR}.
+Folloing the [instruction](https://github.com/castorini/anserini/blob/master/docs/experiments-msmarco-passage.md), we first download MSMARCO passage collection and query files. Then, convert the collection.tsv into json file in $COLLECTION_PATH for pyserini index, and put queries.dev.small.tsv file into $Q_DIR.
 ```shell=bash
 export COLLECTION_PATH=need_your_assignment
 export INDEX_PATH=need_your_assignment

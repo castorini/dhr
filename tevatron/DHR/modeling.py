@@ -116,7 +116,7 @@ class DHRModel(nn.Module):
             self.lamb = 1
         else:
             self.lamb = 0
-        self.temperature = 1
+        self.temperature = 4
         self.alpha = 0.1
 
         self.effective_bsz = self.train_args.per_device_train_batch_size * self.world_size \
@@ -229,16 +229,16 @@ class DHRModel(nn.Module):
                     
                     loss += self.kl_loss(nn.functional.log_softmax(scores , dim=-1), self.softmax(tct_teacher_scores * self.temperature))
 
-                    
+
                     
                     
 
-                    # if teacher_scores is not None:
-                    #     pairwise_scores = scores.view(1,-1)
-                    #     pairwise_scores = torch.nn.functional.pad(input=pairwise_scores, pad=(0, scores.shape[1]), mode='constant', value=0)
-                    #     pairwise_scores = pairwise_scores.view(scores.shape[0], -1)
-                    #     pairwise_scores = pairwise_scores.view(scores.shape[0], -1)[:,:teacher_scores.shape[1]]
-                    #     loss += self.kl_loss(nn.functional.log_softmax(pairwise_scores, dim=-1), self.softmax(teacher_scores * self.temperature))
+                    if teacher_scores is not None:
+                        pairwise_scores = scores.view(1,-1)
+                        pairwise_scores = torch.nn.functional.pad(input=pairwise_scores, pad=(0, scores.shape[1]), mode='constant', value=0)
+                        pairwise_scores = pairwise_scores.view(scores.shape[0], -1)
+                        pairwise_scores = pairwise_scores.view(scores.shape[0], -1)[:,:teacher_scores.shape[1]]
+                        loss += self.kl_loss(nn.functional.log_softmax(pairwise_scores, dim=-1), self.softmax(teacher_scores * self.temperature))
 
                 else:
                     # base = scores[:,0][:,None].repeat((1,8))
