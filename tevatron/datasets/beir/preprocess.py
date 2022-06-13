@@ -5,7 +5,7 @@ import pathlib, os
 from beir import util, LoggingHandler
 from beir.datasets.data_loader import GenericDataLoader
 logger = logging.getLogger(__name__)
-from ..utils.data_reader import create_dir
+from ...utils.data_reader import create_dir
 
 
 def main():
