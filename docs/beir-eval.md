@@ -102,7 +102,7 @@ python -m retrieval.rcap_eval --qrel_file_path ./dataset/${CORPUS}/qrels/qrels.$
 
 ```
 ## Evaluation with Sentence Transformer
-The second one is to directly use [BEIR](https://github.com/beir-cellar/beir) API to conduct brute-force search. No densification before retrieval; thus, the result can be considered the upper bound of our model. 
+The second one is to directly use [BEIR](https://github.com/beir-cellar/beir) API to conduct brute-force search. No densification before retrieval; thus, the result is slightly different from the numbers reported in our paper. Note that, for this script, we currently only support our DHR models, [DeLADE-CLS](https://huggingface.co/jacklin/DeLADE-CLS) and [DeLADE-CLS-P](https://huggingface.co/jacklin/DeLADE-CLS-P). 
 ```
 python -m tevatron.datasets.beir.encode_and_retrieval --dataset trec-covid --model ${MODEL_DIR}
 ```
