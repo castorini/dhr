@@ -7,8 +7,8 @@ from numpy import ndarray
 from torch import Tensor
 from tqdm.autonotebook import trange
 from transformers import AutoModelForMaskedLM
-from ..DHR.modeling import DHRModelForInference
-from ..DHR.modeling import DHROutput as Output
+from ...DHR.modeling import DHRModelForInference
+from ...DHR.modeling import DHROutput as Output
 
 try:
     import sentence_transformers
@@ -107,7 +107,7 @@ class DHR(torch.nn.Module):
 
         if device is None:
             device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-
+        
         self.to(device)
 
         all_embeddings = []
