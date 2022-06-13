@@ -1,8 +1,6 @@
 # Training and Inference on MSMARCO Passage ranking
 ## Data Preparation
 We first preprocess the corpus, development queries and official training data in the json format. Each passage in the corpus is a line with the format: `{"text_id": passage_id, "text": [vocab_ids]}`. Similarly, each query in the development set is a line with the format: `{"text_id": query_id, "text": [vocab_ids]}`. As for training data, we rearrange the official training data in the format: `{"query": [vocab_ids], "positive_pids": [positive_passage_id0, positive_passage_id1, ...], "negative_pids": [negative_passage_id0, negative_passage_id1, ...]}`. Note that we use string type for passage and query. You can also download our preprocessed data on [huggingface hub](https://huggingface.co/datasets/jacklin/msmarco_passage_ranking/tree/main).
-## Model
-Instead of training by yourself, you can also download [DeLADE+[CLS]](https://huggingface.co/jacklin/DeLADE-CLS) and [DeLADE]((https://huggingface.co/jacklin/DeLADE)).
 
 ## Simple Training
 This below script is the DHR (DLR) training in our paper. You can simply switch ${MODEL} from DHR to DLR, and the option `--combine_cls` would be turned off automatically.

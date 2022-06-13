@@ -109,7 +109,8 @@ class ColBERT(nn.Module):
             query: Dict[str, Tensor] = None,
             passage: Dict[str, Tensor] = None,
             teacher_scores: Tensor = None,
-            is_teacher = False
+            is_teacher = False,
+            in_batch = True,
     ):
 
         q_cls, q_seq_reps = self.encode_query(query)
@@ -179,7 +180,10 @@ class ColBERT(nn.Module):
                         p_seq_reps = self.dist_gather_tensor(p_seq_reps)
                         q_cls = self.dist_gather_tensor(q_cls)
                         p_cls = self.dist_gather_tensor(p_cls)
-                    scores = self.listwise_maxsim(q_seq_reps, p_seq_reps) + self.listwise_maxsim(q_cls, p_cls)
+                    if in_batch:
+                        scores = self.listwise_maxsim(q_seq_reps, p_seq_reps) + self.listwise_maxsim(q_cls, p_cls)
+                    else:
+                        scores = self.pairwise_maxsim(q_seq_reps, p_seq_reps) + self.pairwise_maxsim(q_cls, p_cls)
                 else:
                     scores = torch.einsum('aik,ajk->aij', q_seq_reps, p_seq_reps) 
                     scores = torch.max(scores, -1).values

@@ -116,22 +116,12 @@ class DHRModel(nn.Module):
             self.lamb = 1
         else:
             self.lamb = 0
-        self.temperature = 4
-        self.alpha = 0.1
+        self.temperature = 1
 
         self.effective_bsz = self.train_args.per_device_train_batch_size * self.world_size \
             if self.train_args.negatives_x_device \
             else self.train_args.per_device_train_batch_size 
 
-        M = []
-        for i in range(self.effective_bsz):
-            m =[]
-            for j in range(self.effective_bsz*self.data_args.train_n_passages):
-                if (j >= self.data_args.train_n_passages*(i+1)) or (j <= self.data_args.train_n_passages*i):
-                    m.append(j)
-            M.append(m)
-
-        self.M = torch.LongTensor(M).cuda()
 
 
     def forward(
@@ -172,87 +162,30 @@ class DHRModel(nn.Module):
             if self.model_args.dlr_out_dim is not None:
                 lexical_scores = self.listwise_gip_scores(q_lexical_reps, p_lexical_reps, effective_bsz)                
             else:
-                lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
+                lexical_scores = self.pairwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
 
             # semantic matching
-            semantic_scores = self.listwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
+            semantic_scores = self.pairwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
             # fusion
             scores = lexical_scores + self.lamb * semantic_scores
             
 
             loss = 0
 
-            
+            # tct kd                 
+            if self.model_args.tct:
 
-            # tct kd 
-            # Todo: support cross gpus, 
-            if self.model_args.kd or self.model_args.tct:
-
-                # passage centric regularization (pc)
-                pc_lexical_scores = self.listwise_pc_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
-                pc_semantic_scores = self.listwise_pc_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
-                pc_scores = pc_lexical_scores + pc_semantic_scores
-
-                # hard_label_scores = torch.arange(
-                #     lexical_scores.size(0),
-                #     device=lexical_scores.device,
-                #     dtype=torch.long
-                # )
-                # hard_label_scores = hard_label_scores * self.data_args.train_n_passages
-
-                pc_label_scores = torch.arange(
-                    pc_scores.size(0),
-                    device=pc_scores.device,
-                    dtype=torch.long
-                )
-                pc_label_scores = pc_label_scores * self.data_args.train_n_passages
-                pc_label_scores = torch.nn.functional.one_hot(pc_label_scores, num_classes=pc_scores.size(1)).float()
-
-                loss += self.kl_loss(nn.functional.log_softmax(pc_scores/4, dim=-1), pc_label_scores)
                 
-                if self.model_args.tct:
-                    # lexical matching
-                    if self.model_args.dlr_out_dim is not None:
-                        lexical_scores = self.listwise_gip_scores(q_lexical_reps, p_lexical_reps, effective_bsz)                
-                    else:
-                        lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
-
-                    # semantic matching
-                    semantic_scores = self.listwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
-                    # fusion
-                    scores = lexical_scores + self.lamb * semantic_scores
-
-                    self.teacher_model.eval()
-                    with torch.no_grad(): 
-                        colbert_output = self.teacher_model(query=query, passage=passage, is_teacher=True)
-                        tct_teacher_scores = colbert_output.scores
-                    
-                    loss += self.kl_loss(nn.functional.log_softmax(scores , dim=-1), self.softmax(tct_teacher_scores * self.temperature))
-
-
-                    
-                    
-
-                    if teacher_scores is not None:
-                        pairwise_scores = scores.view(1,-1)
-                        pairwise_scores = torch.nn.functional.pad(input=pairwise_scores, pad=(0, scores.shape[1]), mode='constant', value=0)
-                        pairwise_scores = pairwise_scores.view(scores.shape[0], -1)
-                        pairwise_scores = pairwise_scores.view(scores.shape[0], -1)[:,:teacher_scores.shape[1]]
-                        loss += self.kl_loss(nn.functional.log_softmax(pairwise_scores, dim=-1), self.softmax(teacher_scores * self.temperature))
-
-                else:
-                    # base = scores[:,0][:,None].repeat((1,8))
-                    # scores -= base
-                    # loss = self.mse_loss(scores, teacher_scores)
-                    teacher_scores = torch.nn.functional.pad(input=teacher_scores * self.temperature, pad=(0, scores.shape[1]), mode='constant', value=-40)
-                    teacher_scores = teacher_scores.view(-1)[:-scores.shape[1]]
-                    teacher_scores = teacher_scores.view(scores.shape[0], -1)
-
-                    loss += self.kl_loss(nn.functional.log_softmax(scores, dim=-1), self.softmax(teacher_scores)) 
-                    
+                # KL
+                self.teacher_model.eval()
+                with torch.no_grad(): 
+                    colbert_output = self.teacher_model(query=query, passage=passage, is_teacher=True)
+                    tct_teacher_scores = colbert_output.scores
+                loss += self.kl_loss(nn.functional.log_softmax(scores , dim=-1), self.softmax(tct_teacher_scores * self.temperature))
+                # regularize semantic and lexical components
+                loss += 0.5 * self.kl_loss(nn.functional.log_softmax(semantic_scores , dim=-1), self.softmax(tct_teacher_scores * self.temperature * 3 / 4))
+                loss += 0.5 * self.kl_loss(nn.functional.log_softmax(lexical_scores , dim=-1), self.softmax(tct_teacher_scores * self.temperature * 1 / 4))
             else:
-                
-
                 hard_label_scores = torch.arange(
                     lexical_scores.size(0),
                     device=lexical_scores.device,
@@ -262,8 +195,6 @@ class DHRModel(nn.Module):
                 hard_label_scores = torch.nn.functional.one_hot(hard_label_scores, num_classes=lexical_scores.size(1)).float()
 
                 loss += self.kl_loss(nn.functional.log_softmax(scores, dim=-1), hard_label_scores)
-
-
 
             if self.train_args.negatives_x_device:
                 loss = loss * self.world_size  # counter average weight reduction
@@ -304,6 +235,11 @@ class DHRModel(nn.Module):
                 p_lexical_reps = p_lexical_reps,
                 p_semantic_reps = p_semantic_reps,
             )
+
+    def contrastive_scores(self, scores):
+        base = scores[:,0][:,None].repeat((1,scores.shape[1]))
+        scores -= base
+        return scores
 
     def pairwise_scores(self, q_reps, p_reps, effective_bsz):
         q_reps = q_reps.view(effective_bsz, 1, -1)
@@ -347,18 +283,6 @@ class DHRModel(nn.Module):
         
         scores = torch.matmul(q_value_reps, p_value_reps.transpose(2, 1)).squeeze()
         return scores
-
-    def listwise_pc_scores(self, q_reps, p_reps, effective_bsz):
-        dimension = p_reps.shape[1]
-        p_reps = p_reps.view(effective_bsz , -1, dimension)
-        pp_reps = p_reps[:,0,:]
-        np_reps = p_reps.reshape(-1, dimension)
-        pc_scores = self.listwise_scores(pp_reps, np_reps, effective_bsz)
-        # pc_scores = torch.gather(pc_scores, dim=1, index=self.M)
-
-        # qp_scores = (q_reps*pp_reps).sum(-1, keepdim=True)
-        return pc_scores
-
     
     def encode_passage(self, psg):
         if psg is None:

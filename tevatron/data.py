@@ -205,11 +205,12 @@ class TrainTASBDataset(Dataset):
         if self.tasb_sampling:
             # make sure the same query cluster gathered in the same batch
             random.seed(self.trainer.state.global_step)
-            cluster_num = random.randint(0, self.cluster_num-1)
+            cluster_list = random.choices(self.qidx_cluster, k=24)
             
             #sampling different queries in a batch
             random.seed(_hashed_seed) 
-            item = random.choices(self.qidx_cluster[cluster_num]['qidx'])[0]
+            cluster = random.choices(cluster_list, k=1)[0]
+            item = random.choices(cluster['qidx'])[0]
 
             group = self.train_data[item]
         else:
