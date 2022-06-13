@@ -25,7 +25,7 @@ python -m tevatron.utils.tokenize_query \
 Following the [inference scripts](https://github.com/castorini/DHR/blob/main/docs/msmarco-passage-train-eval.md#inference-msmarco-passage-for-retrieval) for msmarco-passage data, we run inference, GIP retrieval and evaluation on the BEIR dataset.
 ```
 export CUDA_VISIBLE_DEVICES=0
-export MODEL=DHR
+export MODEL=DHR #change to DLR if you use DLR model
 export CLSDIM=128
 export DLRDIM=768
 export CORPUS=trec-covid
@@ -105,6 +105,8 @@ python -m retrieval.rcap_eval --qrel_file_path ./dataset/${CORPUS}/qrels/qrels.$
 ## Evaluation with Sentence Transformer
 The second one is to directly use [BEIR](https://github.com/beir-cellar/beir) API to conduct brute-force search. No densification before retrieval; thus, the result is slightly different from the numbers reported in our paper. Note that, for this script, we currently only support our DHR models, [DeLADE-CLS](https://huggingface.co/jacklin/DeLADE-CLS) and [DeLADE-CLS-P](https://huggingface.co/jacklin/DeLADE-CLS-P). 
 ```
+git clone https://huggingface.co/jacklin/DeLADE-CLS-P
+export MODEL_DIR=DeLADE-CLS-P
 python -m tevatron.datasets.beir.encode_and_retrieval --dataset trec-covid --model ${MODEL_DIR}
 ```
 
