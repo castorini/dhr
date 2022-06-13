@@ -1,8 +1,10 @@
 # BEIR Evaluation
-We provide two scripts for BEIR evaluation and use trec-covid as an example.
+We provide two scripts for BEIR evaluation and use the model, [DeLADE-CLS-P](https://huggingface.co/jacklin/DeLADE-CLS-P), and the dataset, trec-covid, as an example.
 ## Evaluation with GIP
-We first downlaod beir dataset; then, tokenize corpus and queries, and convert qrel in trec format. The files are in `dataset/trec-covid`.
+We first downlaod our model and beir dataset.
 ```
+git clone https://huggingface.co/jacklin/DeLADE-CLS-P
+export MODEL_DIR=DeLADE-CLS-P
 export CORPUS=trec-covid
 export SPLIT=test
 python -m tevatron.datasets.beir.preprocess --dataset ${CORPUS}
@@ -13,20 +15,19 @@ python -m tevatron.utils.tokenize_corpus \
   --corpus_path ./dataset/${CORPUS}/corpus/collection.json \
   --output_dir ./dataset/${CORPUS}/tokenized_data/corpus \
   --corpus_domain beir \
-  --tokenize --encode
+  --tokenize --encode --num_workers 10
 
 python -m tevatron.utils.tokenize_query \
   --qry_file ./dataset/${CORPUS}/queries/queries.${SPLIT}.tsv \
   --output_dir ./dataset/${CORPUS}/tokenized_data/queries
 
 ```
-Following the above inference scripts for msmarco-passage data, we run inference, GIP retrieval and evaluation on the BEIR dataset.
+Following the [inference scripts](https://github.com/castorini/DHR/blob/main/docs/msmarco-passage-train-eval.md#inference-msmarco-passage-for-retrieval) for msmarco-passage data, we run inference, GIP retrieval and evaluation on the BEIR dataset.
 ```
 export CUDA_VISIBLE_DEVICES=0
 export MODEL=DHR
 export CLSDIM=128
 export DLRDIM=768
-export MODEL_DIR=${MODEL}_CLS${CLSDIM}
 export CORPUS=trec-covid
 export SPLIT=test
 export INDEX_DIR=${MODEL_DIR}/encoding${DLRDIM}
