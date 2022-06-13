@@ -13,6 +13,7 @@ pip install pyserini
 pip install beir
 ```
 # Dense Lexical Retrieval
+[embed]https://github.com/castorini/DHR/blob/main/fig/densification.pdf[/embed]
 We can densify any existing lexical matching models and conduct lexical matching on GPU. In the [document](https://github.com/jacklin64/DHR/blob/main/docs/densify_exp.md), we demonstrate how to conduct BM25 and uniCOIL end-to-end retrieval under our framework. Detailed description can be found in our [paper](https://arxiv.org/pdf/2112.04666.pdf). 
 
 # Dense Hybrid Retrieval
