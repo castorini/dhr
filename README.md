@@ -1,6 +1,6 @@
 # Dense Hybrid Search
 The repo contains the code for our paper:
-*[A Dense Representation Framework for Lexical and Semantic Matching](https://arxiv.org/pdf/2112.04666.pdf)* Sheng-Chieh Lin and Jimmy Lin. 
+*[A Dense Representation Framework for Lexical and Semantic Matching](https://arxiv.org/abs/2206.09912)* Sheng-Chieh Lin and Jimmy Lin. 
 This repo contains three parts: (1) densify (2) training (tevatron) (3) retrieval . 
 
 Our training code is mainly from [Tevatron](https://github.com/texttron/tevatron) with a minor revision.
