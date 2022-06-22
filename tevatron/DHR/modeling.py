@@ -162,10 +162,10 @@ class DHRModel(nn.Module):
             if self.model_args.dlr_out_dim is not None:
                 lexical_scores = self.listwise_gip_scores(q_lexical_reps, p_lexical_reps, effective_bsz)                
             else:
-                lexical_scores = self.pairwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
+                lexical_scores = self.listwise_scores(q_lexical_reps, p_lexical_reps, effective_bsz)
 
             # semantic matching
-            semantic_scores = self.pairwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
+            semantic_scores = self.listwise_scores(q_semantic_reps, p_semantic_reps, effective_bsz)
             # fusion
             scores = lexical_scores + self.lamb * semantic_scores
             

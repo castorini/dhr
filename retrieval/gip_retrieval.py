@@ -186,7 +186,7 @@ def main():
 
     if not args.use_gpu:
         import mkl
-        mkl.set_num_threads(36)
+        mkl.set_num_threads(1)
     else:
         torch.cuda.set_device(0)
 
