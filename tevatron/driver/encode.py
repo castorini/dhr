@@ -76,6 +76,15 @@ def main():
             config=config,
             cache_dir=model_args.cache_dir,
         )
+    elif (model_args.model).lower() == 'agg':
+        from tevatron.Aggretriever.modeling import DenseModelForInference
+        from tevatron.Aggretriever.modeling import DenseOutput as Output
+        logger.info("Encoding model AGG")
+        model = DenseModelForInference.build(
+            model_args=model_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
     elif (model_args.model).lower() == 'dense':
         from tevatron.Dense.modeling import DenseModelForInference
         from tevatron.Dense.modeling import DenseOutput as Output
@@ -111,29 +120,19 @@ def main():
         num_workers=training_args.dataloader_num_workers,
     )
 
-    # todo: add to arg, check cls dims and densified dims
-    if model_args.dlr_out_dim is None:
-        densified_dims = 768
-    else:
-        densified_dims = model_args.dlr_out_dim
-    semantic_dims = model_args.projection_out_dim
-    combine_cls = model_args.combine_cls
+    
+
+    def initialize_reps(data_num, dim, dtype):
+        return np.zeros((data_num, dim), dtype=dtype)
+
+
     offset = 0
-
-    data_num = len(encode_dataset)
-    if (model_args.model).lower() == 'dense':
-        value_encoded = np.zeros((data_num, semantic_dims), dtype=np.float16)
-        index_encoded = 0
-    else: #DLR or DHR
-        if combine_cls:
-            value_encoded = np.zeros((data_num, densified_dims + semantic_dims), dtype=np.float16)
-        else:
-            value_encoded = np.zeros((data_num, densified_dims), dtype=np.float16)
-        index_encoded = np.zeros((data_num, densified_dims), dtype=np.int8)
-
     lookup_indices = []
     model = model.to(training_args.device)
     model.eval()
+
+    data_num = len(encode_dataset)
+    value_encoded, index_encoded = None, None
 
     for (batch_ids, batch) in tqdm(encode_loader):
         batch_size = len(batch_ids)
@@ -142,26 +141,63 @@ def main():
             with torch.no_grad():
                 for k, v in batch.items():
                     batch[k] = v.to(training_args.device)
+
                 if data_args.encode_is_qry:
-                    model_output: Output = model(query=batch)
-                    if (model_args.model).lower() == 'dense':
-                        value_encoded[offset: (offset + batch_size), :densified_dims] = model_output.q_reps.cpu().detach().numpy()
+                    if (model_args.model).lower() == 'agg':
+                        model_output: Output = model(query=batch, agg_dim=model_args.agg_dim)
                     else:
-                        q_value_reps, q_index_reps = densify(model_output.q_lexical_reps, densified_dims)
-                        value_encoded[offset: (offset + batch_size), :densified_dims] = q_value_reps.cpu().detach().numpy()
-                        if combine_cls:
-                            value_encoded[offset: (offset + batch_size), densified_dims:] = model_output.q_semantic_reps.cpu().detach().numpy()
-                        index_encoded[offset: (offset + batch_size), :densified_dims] = q_index_reps.cpu().detach().numpy().astype(np.uint8)
+                        model_output: Output = model(query=batch)
+
+                    if (model_args.model).lower() == 'dense' or (model_args.model).lower() == 'agg':
+                        reps = model_output.q_reps.cpu().detach().numpy()
+                        if value_encoded is None:
+                            value_encoded = initialize_reps(data_num, reps.shape[1], np.float16)
+                        value_encoded[offset: (offset + batch_size), :] = reps
+                    else:
+                        dlr_value_reps, dlr_index_reps = densify(model_output.q_lexical_reps, model_args.dlr_out_dim)
+                        dlr_value_reps = dlr_value_reps.cpu().detach().numpy()
+                        dlr_index_reps = dlr_index_reps.cpu().detach().numpy().astype(np.uint8)
+                        cls_reps = model_output.q_semantic_reps.cpu().detach().numpy()
+
+                        if value_encoded is None:
+                            if cls_reps is None:
+                                cls_dim = 0
+                            else:
+                                cls_dim = cls_reps.shape[1]
+                            value_encoded = initialize_reps(data_num, dlr_value_reps.shape[1] + cls_dim, np.float16)
+                            index_encoded = initialize_reps(data_num, dlr_index_reps.shape[1], np.uint8)
+                        value_encoded[offset: (offset + batch_size), :model_args.dlr_out_dim] = dlr_value_reps
+                        index_encoded[offset: (offset + batch_size), :model_args.dlr_out_dim] = dlr_index_reps
+                        if cls_reps is not None:
+                            value_encoded[offset: (offset + batch_size), model_args.dlr_out_dim:] = cls_reps
+
                 else:
-                    model_output: Output = model(passage=batch)
-                    if (model_args.model).lower() == 'dense':
-                        value_encoded[offset: (offset + batch_size), :densified_dims] = model_output.p_reps.cpu().detach().numpy()
+                    if (model_args.model).lower() == 'agg':
+                        model_output: Output = model(passage=batch, agg_dim=model_args.agg_dim)
                     else:
-                        p_value_reps, p_index_reps = densify(model_output.p_lexical_reps, densified_dims)
-                        value_encoded[offset: (offset + batch_size), :densified_dims] = p_value_reps.cpu().detach().numpy()
-                        if combine_cls:
-                            value_encoded[offset: (offset + batch_size), densified_dims:] = model_output.p_semantic_reps.cpu().detach().numpy()
-                        index_encoded[offset: (offset + batch_size), :densified_dims] = p_index_reps.cpu().detach().numpy().astype(np.uint8)
+                        model_output: Output = model(passage=batch)
+                    if (model_args.model).lower() == 'dense' or (model_args.model).lower() == 'agg':
+                        reps = model_output.p_reps.cpu().detach().numpy()
+                        if value_encoded is None:
+                            value_encoded = initialize_reps(data_num, reps.shape[1], np.float16)
+                        value_encoded[offset: (offset + batch_size), :] = reps
+                    else:
+                        dlr_value_reps, dlr_index_reps = densify(model_output.p_lexical_reps, model_args.dlr_out_dim)
+                        dlr_value_reps = dlr_value_reps.cpu().detach().numpy()
+                        dlr_index_reps = dlr_index_reps.cpu().detach().numpy().astype(np.uint8)
+                        cls_reps = model_output.p_semantic_reps.cpu().detach().numpy()
+
+                        if value_encoded is None:
+                            if cls_reps is None:
+                                cls_dim = 0
+                            else:
+                                cls_dim = cls_reps.shape[1]
+                            value_encoded = initialize_reps(data_num, dlr_value_reps.shape[1] + cls_dim, np.float16)
+                            index_encoded = initialize_reps(data_num, dlr_index_reps.shape[1], np.uint8)
+                        value_encoded[offset: (offset + batch_size), :model_args.dlr_out_dim] = dlr_value_reps
+                        index_encoded[offset: (offset + batch_size), :model_args.dlr_out_dim] = dlr_index_reps
+                        if cls_reps is not None:
+                            value_encoded[offset: (offset + batch_size), model_args.dlr_out_dim:] = cls_reps
 
         offset += batch_size
 

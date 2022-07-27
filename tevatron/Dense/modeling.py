@@ -110,8 +110,8 @@ class DenseModel(nn.Module):
     ):
 
 
-        q_hidden, q_reps = self.encode_query(query)
-        p_hidden, p_reps = self.encode_passage(passage)
+        q_hidden, q_reps = self.encode_query(query, self.model_args.pooling_method)
+        p_hidden, p_reps = self.encode_passage(passage, self.model_args.pooling_method)
 
         if q_reps is None or p_reps is None:
             return DenseOutput(
@@ -161,27 +161,42 @@ class DenseModel(nn.Module):
                 p_reps=p_reps
             )
 
-    def encode_passage(self, psg):
+    def encode_passage(self, psg, pooling_method):
         if psg is None:
             return None, None
 
         psg_out = self.lm_p(**psg, return_dict=True)
         p_hidden = psg_out.last_hidden_state
-        if self.pooler is not None:
-            p_reps = self.pooler(p=p_hidden[:, 0])  # D * d
-        else:
+
+        if pooling_method == 'cls':
             p_reps = p_hidden[:, 0]
+        elif pooling_method == 'average':
+            attention_mask = psg['attention_mask']
+            p_hidden = p_hidden.masked_fill(~attention_mask[..., None].bool(), 0.0)
+            p_reps = p_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+
+        if self.pooler is not None:
+            p_reps = self.pooler(p=p_reps)  # D * d
+
         return p_hidden, p_reps
 
-    def encode_query(self, qry):
+    def encode_query(self, qry, pooling_method):
         if qry is None:
             return None, None
         qry_out = self.lm_q(**qry, return_dict=True)
         q_hidden = qry_out.last_hidden_state
-        if self.pooler is not None:
-            q_reps = self.pooler(q=q_hidden[:, 0])
-        else:
+
+        if pooling_method == 'cls':
             q_reps = q_hidden[:, 0]
+        elif pooling_method == 'average':
+            attention_mask = qry['attention_mask']
+            q_hidden = q_hidden.masked_fill(~attention_mask[..., None].bool(), 0.0)
+            q_reps = q_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+
+
+        if self.pooler is not None:
+            q_reps = self.pooler(q=q_reps)
+
         return q_hidden, q_reps
 
     @staticmethod
@@ -274,6 +289,7 @@ class DenseModelForInference(DenseModel):
 
     def __init__(
             self,
+            model_args,
             lm_q: PreTrainedModel,
             lm_p: PreTrainedModel,
             pooler: nn.Module = None,
@@ -283,14 +299,15 @@ class DenseModelForInference(DenseModel):
         self.lm_q = lm_q
         self.lm_p = lm_p
         self.pooler = pooler
+        self.model_args = model_args
 
     @torch.no_grad()
-    def encode_passage(self, psg):
-        return super(DenseModelForInference, self).encode_passage(psg)
+    def encode_passage(self, psg, pooling_method):
+        return super(DenseModelForInference, self).encode_passage(psg, pooling_method)
 
     @torch.no_grad()
-    def encode_query(self, qry):
-        return super(DenseModelForInference, self).encode_query(qry)
+    def encode_query(self, qry, pooling_method):
+        return super(DenseModelForInference, self).encode_query(qry, pooling_method)
 
     # def forward(
     #         self,
@@ -353,8 +370,10 @@ class DenseModelForInference(DenseModel):
             pooler = None
 
         model = cls(
+            model_args=model_args,
             lm_q=lm_q,
             lm_p=lm_p,
             pooler=pooler
+            
         )
         return model

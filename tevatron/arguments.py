@@ -26,7 +26,7 @@ class ModelArguments:
     # modeling
     model: str = field(
         default='DHR',
-        metadata={"help": "ColBERT, DHR"}
+        metadata={"help": "ColBERT, DHR, AGG, Dense"}
     )
     untie_encoder: bool = field(
         default=False,
@@ -46,7 +46,21 @@ class ModelArguments:
     add_pooler: bool = field(default=False)
     projection_in_dim: int = field(default=768)
     projection_out_dim: int = field(default=768)
-    dlr_out_dim: int = field(default=None)
+
+    # Dense
+    pooling_method: str = field(
+        default='cls',
+        metadata={"help": "cls, average"}
+    )
+
+    # dlr option
+    dlr_out_dim: int = field(default=768)
+
+    # agg option
+    agg_dim: int = field(default=640)
+    semi_aggregate: bool = field(default=False)
+    skip_mlm: bool = field(default=False)
+
 
     # for Jax training
     dtype: Optional[str] = field(

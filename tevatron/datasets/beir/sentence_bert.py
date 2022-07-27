@@ -7,8 +7,7 @@ from numpy import ndarray
 from torch import Tensor
 from tqdm.autonotebook import trange
 from transformers import AutoModelForMaskedLM
-from ...DHR.modeling import DHRModelForInference
-from ...DHR.modeling import DHROutput as Output
+
 
 try:
     import sentence_transformers
@@ -23,6 +22,7 @@ class SentenceTransformerModel:
         self.max_length = max_length
         self.tokenizer = tokenizer
         self.model = model
+        self.sep = ' '
 
     # Write your own encoding query function (Returns: Query embeddings as numpy array)
     def encode_queries(self, queries: List[str], batch_size: int, **kwargs) -> np.ndarray:
@@ -31,24 +31,51 @@ class SentenceTransformerModel:
 
     # Write your own encoding corpus function (Returns: Document embeddings as numpy array)  
     def encode_corpus(self, corpus: List[Dict[str, str]], batch_size: int, **kwargs) -> np.ndarray:
-        sentences = [(doc["title"] + ' ' + doc["text"]).strip() for doc in corpus]
+        sentences = [(doc["title"] + self.sep + doc["text"]).strip() for doc in corpus]
         return self.model.encode_sentence_bert(self.tokenizer, sentences, maxlen=self.max_length)
 
 
 
-class DHR(torch.nn.Module):
+class Retriever(torch.nn.Module):
 
-    def __init__(self, model_type_or_dir):
+    def __init__(self, model_type_or_dir, model_args):
         super().__init__()
-        self.transformer = DHRModelForInference.build(model_name_or_path=model_type_or_dir)
-
+        self.model_args = model_args
+        if self.model_args.model.lower() == 'dhr':
+            from ...DHR.modeling import DHRModelForInference
+            from ...DHR.modeling import DHROutput as output
+            self.transformer = DHRModelForInference.build(model_name_or_path=model_type_or_dir, model_args=model_args)
+        elif self.model_args.model.lower() == 'agg':
+            from ...Aggretriever.modeling import DenseModelForInference
+            from ...Aggretriever.modeling import DenseOutput as output
+            self.transformer = DenseModelForInference.build(model_name_or_path=model_type_or_dir, model_args=model_args)
+        elif self.model_args.model.lower() == 'dense':
+            from ...Dense.modeling import DenseModelForInference
+            from ...Dense.modeling import DenseOutput as Output
+            self.transformer = DenseModelForInference.build(model_name_or_path=model_type_or_dir, model_args=model_args)
+        else:
+            raise ValueError('--rep_type can only be dhr or dense (CLS) or agg.')
     def forward(self, features, is_q):
         if is_q:
-            out = self.transformer(query=features)
-            return [out.q_lexical_reps, out.q_semantic_reps]
+            if self.model_args.model.lower() == 'dhr':
+                out = self.transformer(query=features)
+                return [out.q_lexical_reps, out.q_semantic_reps]
+            if self.model_args.model.lower() == 'agg':
+                out = self.transformer(query=features)
+                return out.q_reps
+            elif self.model_args.model.lower() == 'dense':
+                out = self.transformer(query=features)
+                return out.q_reps
         else:
-            out = self.transformer(passage=features)
-            return [out.p_lexical_reps, out.p_semantic_reps]
+            if self.model_args.model.lower() == 'dhr':
+                out = self.transformer(passage=features)
+                return [out.p_lexical_reps, out.p_semantic_reps]
+            if self.model_args.model.lower() == 'agg':
+                out = self.transformer(passage=features)
+                return out.p_reps
+            elif self.model_args.model.lower() == 'dense':
+                out = self.transformer(passage=features)
+                return out.p_reps
 
     def _text_length(self, text: Union[List[int], List[List[int]]]):
         """helper function to get the length for the input text. Text can be either
@@ -88,6 +115,15 @@ class DHR(torch.nn.Module):
         :return:
            By default, a list of tensors is returned. If convert_to_tensor, a stacked tensor is returned. If convert_to_numpy, a numpy matrix is returned.
         """
+        if self.model_args.model == 'dense':
+            output_value = 'sentence_embeddings'
+        elif self.model_args.model == 'agg':
+            output_value = 'sentence_embeddings'
+        else:
+            output_value = 'dhr_embeddings'
+
+
+
         self.eval()
         if show_progress_bar is None:
             show_progress_bar = True
@@ -134,14 +170,22 @@ class DHR(torch.nn.Module):
                 out_features = self.forward(features, is_q)
                 if output_value == 'dhr_embeddings':
                     lexical_embeddings = out_features[0].detach()
-                    semantic_embeddings = out_features[1].detach()
+                    try:
+                        semantic_embeddings = out_features[1].detach()
+                        semantic_dim = semantic_embeddings.shape[1]
+                    except:
+                        semantic_dim = 0
                     if convert_to_numpy:
                         lexical_embeddings = lexical_embeddings.cpu()
-                        semantic_embeddings = semantic_embeddings.cpu()
+                        try:
+                            semantic_embeddings = semantic_embeddings.cpu()
+                        except:
+                            semantic_dim = 0
                         
-                    embeddings = torch.zeros((lexical_embeddings.shape[0], lexical_embeddings.shape[1] + semantic_embeddings.shape[1]))
+                    embeddings = torch.zeros((lexical_embeddings.shape[0], lexical_embeddings.shape[1] + semantic_dim))
                     embeddings[:,:lexical_embeddings.shape[1]] = lexical_embeddings
-                    embeddings[:,lexical_embeddings.shape[1]:] = semantic_embeddings
+                    if semantic_dim != 0:
+                        embeddings[:,lexical_embeddings.shape[1]:] = semantic_embeddings
 
                 else:
                     if output_value == 'token_embeddings':
@@ -162,8 +206,7 @@ class DHR(torch.nn.Module):
                             embeddings = embeddings.cpu()
 
                 all_embeddings.extend(embeddings)
-
-                
+  
         
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
         if convert_to_tensor:
@@ -173,3 +216,4 @@ class DHR(torch.nn.Module):
         if input_was_string:
             all_embeddings = all_embeddings[0]
         return all_embeddings
+

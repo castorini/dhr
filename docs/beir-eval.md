@@ -107,7 +107,7 @@ The second one is to directly use [BEIR](https://github.com/beir-cellar/beir) AP
 ```
 git clone https://huggingface.co/jacklin/DeLADE-CLS-P
 export MODEL_DIR=DeLADE-CLS-P
-python -m tevatron.datasets.beir.encode_and_retrieval --dataset trec-covid --model ${MODEL_DIR}
+python -m tevatron.datasets.beir.encode_and_retrieval --dataset trec-covid --model_name_or_path ${MODEL_DIR}
 ```
 
 

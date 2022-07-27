@@ -3,11 +3,11 @@
 
 
 import argparse
-from .sentence_bert import DHR, SentenceTransformerModel
+from .sentence_bert import Retriever, SentenceTransformerModel
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
 
-
+from ...arguments import ModelArguments
 
 
 from beir.datasets.data_loader import GenericDataLoader
@@ -17,15 +17,25 @@ from beir import util, LoggingHandler
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, required=True)
-    parser.add_argument("--model", type=str, required=True)
+    parser.add_argument("--model_name_or_path", type=str, required=True)
     parser.add_argument("--max_length", type=int, default=512)
+    parser.add_argument("--model", type=str, default='dhr')
+    parser.add_argument("--agg_dim", type=int, default=640, help='for agg model')
+    parser.add_argument("--semi_aggregate", action='store_true', help='for agg model')
+    parser.add_argument("--skip_mlm", action='store_true', help='for agg model')
+    parser.add_argument("--pooling_method", type=str, default='cls', help='for dense model')
     args = parser.parse_args()
 
 
-    model_type_or_dir = args.model
-
+    model_type_or_dir = args.model_name_or_path
+    model_args = ModelArguments
+    model_args.model = args.model
+    model_args.semi_aggregate = args.semi_aggregate
+    model_args.skip_mlm = args.skip_mlm
+    model_args.pooling_method = args.pooling_method
     # loading model and tokenizer
-    model = DHR(model_type_or_dir)
+    model = Retriever(model_type_or_dir, model_args)
+
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(model_type_or_dir, use_fast=False)
     sentence_transformer = SentenceTransformerModel(model, tokenizer, args.max_length)

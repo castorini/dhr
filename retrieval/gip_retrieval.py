@@ -57,6 +57,34 @@ def faiss_search(query_embs, corpus_embs, batch=1, topk=1000):
     Index = np.concatenate(Index, axis=0)
     return Distance, Index
 
+def IP_retrieval(qids, query_embs, corpus_embs, args):
+
+    description = 'Brute force IP search'
+
+
+    all_results = {}
+    all_scores = {}
+
+    start_time = time.time()
+    total_num_idx = 0
+    for i, (query_emb) in tqdm(enumerate(query_embs), total=len(query_embs), desc=description):
+
+        
+                
+        scores = torch.einsum('ij,j->i',(corpus_embs, query_emb))
+        sort_candidates = torch.argsort(scores, descending=True)[:args.topk]
+        sort_scores = scores[sort_candidates]
+
+        all_scores[qids[i]]=sort_scores.cpu().tolist()
+        all_results[qids[i]]=sort_candidates.cpu().tolist()
+
+    average_num_idx = total_num_idx/query_embs.shape[0]
+    time_per_query = (time.time() - start_time)/query_embs.shape[0]
+    print('Retrieving {} queries ({:0.3f} s/query), average number of index use {}'.format(query_embs.shape[0], time_per_query, average_num_idx))
+
+    return all_results, all_scores 
+
+
 def GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs, args):
     if args.brute_force:
         args.theta = 0
@@ -66,12 +94,12 @@ def GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs
             if args.rerank:
                 description = 'GIP (\u03F4={}) retrieval w/ GIP rerank'.format(args.theta)
             else:
-                description = 'GIP (\u03F4={}) retrieval w/0 GIP rerank'.format(args.theta)
+                description = 'GIP (\u03F4={}) retrieval w/o GIP rerank'.format(args.theta)
         else:
             if args.rerank:
                 description = 'IP retrieval w/ GIP rerank'
             else:
-                description = 'IP retrieval w/0 GIP rerank'
+                description = 'IP retrieval w/o GIP rerank'
 
     all_results = {}
     all_scores = {}
@@ -80,7 +108,6 @@ def GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs
     total_num_idx = 0
     for i, (query_emb, query_arg_idx) in tqdm(enumerate(zip(query_embs, query_arg_idxs)), total=len(query_embs), desc=description):
 
-        qidx = i
         if args.theta==0:
             total_num_idx += args.emb_dim
             candidate_sparse_embs = ((corpus_arg_idxs[:,:]==query_arg_idx)*corpus_embs[:,:args.emb_dim])                    
@@ -115,7 +142,7 @@ def GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs
             important_idx = torch.argsort(query_emb[:args.emb_dim], axis=0, descending=True).tolist()[:num_idx]
 
             if not args.IP:
-                # Approximate GIN
+                # Approximate GIP
                 candidate_sparse_embs = ((corpus_arg_idxs[:,important_idx]==query_arg_idx[important_idx])*corpus_embs[:,important_idx])
                 if args.combine_cls:
 
@@ -199,10 +226,16 @@ def main():
 
     if args.use_gpu:
         query_embs = torch.from_numpy(query_embs).cuda(0)
-        query_arg_idxs = torch.from_numpy(query_arg_idxs).cuda(0)
+        try:
+            query_arg_idxs = torch.from_numpy(query_arg_idxs).cuda(0)
+        except:
+            query_arg_idxs = None
     else:
         query_embs = torch.from_numpy(query_embs.astype(np.float32))
-        query_arg_idxs = torch.from_numpy(query_arg_idxs)
+        try:
+            query_arg_idxs = torch.from_numpy(query_arg_idxs)
+        except:
+            query_arg_idxs = None
 
 
     
@@ -214,29 +247,37 @@ def main():
         doc_num_per_shrad = len(docids)//args.total_shrad
         if args.shrad==(args.total_shrad-1):
             corpus_embs = corpus_embs[doc_num_per_shrad*args.shrad:]
-            corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:]
+            try:
+                corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:]
+            except:
+                corpus_arg_idxs = None
             docids = docids[doc_num_per_shrad*args.shrad:]
         else:
             corpus_embs = corpus_embs[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
-            corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
+            try:
+                corpus_arg_idxs = corpus_arg_idxs[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
+            except:
+                corpus_arg_idxs = None
             docids = docids[doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
-            if args.fusion:
-                corpus_dense_reps = corpus_dense_reps[ocidxs][doc_num_per_shrad*args.shrad:doc_num_per_shrad*(args.shrad+1)]
-                corpus_embs = np.concatenate([corpus_embs, args.lamda*corpus_dense_reps], axis=1)
+
         if args.use_gpu:
             corpus_embs = torch.from_numpy(corpus_embs).cuda(0)
-            corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs).cuda(0)
+            if corpus_arg_idxs is not None:
+                corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs).cuda(0)
         else:
             corpus_embs = torch.from_numpy(corpus_embs.astype(np.float32)) 
-            corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs)
+            if corpus_arg_idxs is not None:
+                corpus_arg_idxs = torch.from_numpy(corpus_arg_idxs)
         # density = corpus_embs!=0
         # density = density.sum(axis=1)
         # print(torch.sum(density)/8841823/args.emb_dim)
 
 
 
-
-    results, scores = GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs ,args)
+    if query_arg_idxs is not None:
+        results, scores = GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs ,args)
+    else:
+        results, scores = IP_retrieval(qids, query_embs, corpus_embs, args)
 
     if args.total_shrad==1:
         fout = open('result.trec', 'w')
