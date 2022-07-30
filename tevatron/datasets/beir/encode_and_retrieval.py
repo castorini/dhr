@@ -30,6 +30,8 @@ def main():
     model_type_or_dir = args.model_name_or_path
     model_args = ModelArguments
     model_args.model = args.model
+    # agg method
+    model_args.agg_dim = args.agg_dim
     model_args.semi_aggregate = args.semi_aggregate
     model_args.skip_mlm = args.skip_mlm
     model_args.pooling_method = args.pooling_method
