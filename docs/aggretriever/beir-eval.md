@@ -1,6 +1,6 @@
 # BEIR Evaluation
 ## Evaluation with Sentence Transformer
-We [BEIR](https://github.com/beir-cellar/beir) API to conduct brute-force search.
+We use [BEIR](https://github.com/beir-cellar/beir) API to conduct brute-force search.
 ```
 git clone https://huggingface.co/jacklin/DistilBERT-AGG
 export MODEL_DIR=DistilBERT-AGG
