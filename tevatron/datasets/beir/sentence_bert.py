@@ -57,23 +57,23 @@ class Retriever(torch.nn.Module):
             raise ValueError('--rep_type can only be dhr or dense (CLS) or agg.')
     def forward(self, features, is_q):
         if is_q:
-            if self.model_args.model.lower() == 'dhr':
+            if self.model_args.model== 'dhr':
                 out = self.transformer(query=features)
                 return [out.q_lexical_reps, out.q_semantic_reps]
-            if self.model_args.model.lower() == 'agg':
+            if self.model_args.model == 'agg':
                 out = self.transformer(query=features)
                 return out.q_reps
-            elif self.model_args.model.lower() == 'dense':
+            elif self.model_args.model == 'dense':
                 out = self.transformer(query=features)
                 return out.q_reps
         else:
-            if self.model_args.model.lower() == 'dhr':
+            if self.model_args.model == 'dhr':
                 out = self.transformer(passage=features)
                 return [out.p_lexical_reps, out.p_semantic_reps]
-            if self.model_args.model.lower() == 'agg':
+            if self.model_args.model == 'agg':
                 out = self.transformer(passage=features)
                 return out.p_reps
-            elif self.model_args.model.lower() == 'dense':
+            elif self.model_args.model == 'dense':
                 out = self.transformer(passage=features)
                 return out.p_reps
 

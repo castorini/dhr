@@ -19,7 +19,7 @@ def main():
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--model_name_or_path", type=str, required=True)
     parser.add_argument("--max_length", type=int, default=512)
-    parser.add_argument("--model", type=str, default='dhr')
+    parser.add_argument("--model", type=str, default='dhr', help='dhr, agg, dense')
     parser.add_argument("--agg_dim", type=int, default=640, help='for agg model')
     parser.add_argument("--semi_aggregate", action='store_true', help='for agg model')
     parser.add_argument("--skip_mlm", action='store_true', help='for agg model')
@@ -29,7 +29,7 @@ def main():
 
     model_type_or_dir = args.model_name_or_path
     model_args = ModelArguments
-    model_args.model = args.model
+    model_args.model = args.model.lower()
     # agg method
     model_args.agg_dim = args.agg_dim
     model_args.semi_aggregate = args.semi_aggregate
