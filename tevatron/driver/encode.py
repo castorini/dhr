@@ -79,7 +79,7 @@ def main():
     elif (model_args.model).lower() == 'agg':
         from tevatron.Aggretriever.modeling import DenseModelForInference
         from tevatron.Aggretriever.modeling import DenseOutput as Output
-        logger.info("Encoding model AGG")
+        logger.info("Encoding model Dense (AGG)")
         model = DenseModelForInference.build(
             model_args=model_args,
             config=config,

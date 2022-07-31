@@ -133,6 +133,16 @@ def main():
             config=config,
             cache_dir=model_args.cache_dir,
         )
+    elif (model_args.model).lower() == 'agg':
+        from tevatron.Aggretriever.modeling import DenseModel
+        logger.info("Training model Dense (AGG)")
+        model = DenseModel.build(
+            model_args,
+            data_args,
+            training_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
     elif (model_args.model).lower() == 'dense':
         from tevatron.Dense.modeling import DenseModel
         logger.info("Training model Dense (CLS)")

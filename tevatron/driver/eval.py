@@ -87,6 +87,15 @@ def main():
             config=config,
             cache_dir=model_args.cache_dir,
         )
+    elif (model_args.model).lower() == 'agg':
+        from tevatron.Aggretriever.modeling import DenseModelForInference
+        from tevatron.Aggretriever.modeling import DenseOutput as Output
+        logger.info("Evaluating model Dense (AGG)")
+        model = DHRModelForInference.build(
+            model_args=model_args,
+            config=config,
+            cache_dir=model_args.cache_dir,
+        )
     elif (model_args.model).lower() == 'dense':
         from tevatron.Dense.modeling import DenseModelForInference
         from tevatron.Dense.modeling import DenseOutput as Output
