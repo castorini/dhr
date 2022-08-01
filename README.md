@@ -2,6 +2,7 @@
 In this repo, we introduce two approaches to training transformers to capture semantic and lexical text representations for robust dense passage retrieval.
 1. *[Aggretriever: A Simple Approach to Aggregate Textual Representation for Robust Dense Passage Retrieval](https://arxiv.org/abs/2206.09912)* Sheng-Chieh Lin, Minghan Li and Jimmy Lin. 
 2. *[A Dense Representation Framework for Lexical and Semantic Matching](https://arxiv.org/abs/2206.09912)* Sheng-Chieh Lin and Jimmy Lin. 
+
 This repo contains three parts: (1) densify (2) training (tevatron) (3) retrieval. 
 Our training code is mainly from [Tevatron](https://github.com/texttron/tevatron) with a minor revision.
 
