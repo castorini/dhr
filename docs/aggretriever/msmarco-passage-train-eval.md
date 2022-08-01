@@ -89,7 +89,7 @@ done
 ```
 ## End-to-end Retrieval
 ```
-# GIP retrieval
+# IP retrieval
 for shrad in 0
 do
   echo 'run shrad'$shrad
