@@ -14,6 +14,9 @@ pip install pyserini
 pip install beir
 ```
 # Aggretriever
+
+<img src="./fig/aggretriever.png" width="500">
+
 In this paper, we introduce a simple approach to aggregating token-level information into a single-vector dense representation. We provide instruction for model training and evaluation on MS MARCO passage ranking dataset in the [document](https://github.com/castorini/dhr/blob/main/docs/aggretriever/msmarco-passage-train-eval.md). We also provide instruction for the evaluation on BEIR datasets in the [document](https://github.com/castorini/dhr/blob/main/docs/aggretriever/beir-eval.md).
 
 # A Dense Representation Framework for Lexical and Semantic Matching
