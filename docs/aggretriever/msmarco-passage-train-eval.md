@@ -31,7 +31,6 @@ python -m tevatron.driver.train \
   --agg_dim ${AGGDIM}
   --train_n_passages 8 \
   --dataloader_num_workers 8 \
-  --combine_cls \
 ```
 
 ## Inference MSMARCO Passage for Retrieval
