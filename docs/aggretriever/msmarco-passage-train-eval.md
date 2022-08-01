@@ -87,7 +87,7 @@ do
     --encoded_save_path ${INDEX_DIR}/queries/queries.${CORPUS}.${SPLIT}.pt
 done
 ```
-## End-to-end Retrieval with GIP
+## End-to-end Retrieval
 ```
 # GIP retrieval
 for shrad in 0
