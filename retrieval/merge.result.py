@@ -19,7 +19,7 @@ def main():
 	results = defaultdict(list)
 	scores = defaultdict(list)
 	for shrad in range(args.total_shrad):
-		with open('result{}.trec'.format(shrad), 'r') as f:
+		with open('result{:02d}.trec'.format(shrad), 'r') as f:
 			for line in f:
 				query_id, _, docid, rank, score, _ = line.strip().split(' ')
 				score = float(score)

@@ -205,7 +205,7 @@ class DenseModel(nn.Module):
                 )
                 hard_label_scores = hard_label_scores * self.data_args.train_n_passages
                 hard_label_scores = torch.nn.functional.one_hot(hard_label_scores, num_classes=lexical_scores.size(1)).float()
-                if semantic_scores != 0:
+                if q_semantic_reps is not None:
                     loss += self.kl_loss(nn.functional.log_softmax(scores, dim=-1), hard_label_scores) + \
                             0.5 * self.kl_loss(nn.functional.log_softmax(lexical_scores, dim=-1), hard_label_scores) + \
                             0.5 * self.kl_loss(nn.functional.log_softmax(semantic_scores, dim=-1), hard_label_scores)
