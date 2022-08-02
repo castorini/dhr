@@ -143,10 +143,8 @@ def main():
                     batch[k] = v.to(training_args.device)
 
                 if data_args.encode_is_qry:
-                    if (model_args.model).lower() == 'agg':
-                        model_output: Output = model(query=batch, agg_dim=model_args.agg_dim)
-                    else:
-                        model_output: Output = model(query=batch)
+
+                    model_output: Output = model(query=batch)
 
                     if (model_args.model).lower() == 'dense' or (model_args.model).lower() == 'agg':
                         reps = model_output.q_reps.cpu().detach().numpy()
@@ -172,10 +170,7 @@ def main():
                             value_encoded[offset: (offset + batch_size), model_args.dlr_out_dim:] = cls_reps
 
                 else:
-                    if (model_args.model).lower() == 'agg':
-                        model_output: Output = model(passage=batch, agg_dim=model_args.agg_dim)
-                    else:
-                        model_output: Output = model(passage=batch)
+                    model_output: Output = model(passage=batch)
                     if (model_args.model).lower() == 'dense' or (model_args.model).lower() == 'agg':
                         reps = model_output.p_reps.cpu().detach().numpy()
                         if value_encoded is None:
