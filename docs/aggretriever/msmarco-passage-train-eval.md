@@ -94,7 +94,6 @@ do
   echo 'run shrad'$shrad
   python -m retrieval.gip_retrieval \
     --query_emb_path ${INDEX_DIR}/queries/queries.${CORPUS}.${SPLIT}.pt \
-    --emb_dim ${DLRDIM} \
     --index_path ${INDEX_DIR}/index/${CORPUS}.index.pt \
     --topk 1000 \
     --total_shrad 1 \
