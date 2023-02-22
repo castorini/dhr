@@ -1,8 +1,18 @@
 # Training and Inference on MSMARCO Passage ranking
-## Data Preparation
+In the following, we describe how to train, encode and retrieve with DHR on MS MARCO passage-v1.
+1. [MS MARCO Passage-v1 Data Preparation](#msmarco_data_prep)
+1. [Training](#training)
+1. [Generate Passage and Query Embeddings](#generate_embeddings)
+1. [End-To-End Retrieval](#retrieval)
+    1. [Retrieval on GPU](#retrieval_on_gpu)
+    1. [Retrieval on CPU](#retrieval_on_cpu)
+1. [Evaluation](#evaluation)
+
+
+## MS MARCO Passage-v1 Data Preparation <a name="msmarco_data_prep"></a>
 We first preprocess the corpus, development queries and official training data in the json format. Each passage in the corpus is a line with the format: `{"text_id": passage_id, "text": [vocab_ids]}`. Similarly, each query in the development set is a line with the format: `{"text_id": query_id, "text": [vocab_ids]}`. As for training data, we rearrange the official training data in the format: `{"query": [vocab_ids], "positive_pids": [positive_passage_id0, positive_passage_id1, ...], "negative_pids": [negative_passage_id0, negative_passage_id1, ...]}`. Note that we use string type for passage and query. You can also download our preprocessed data on huggingface hub: [official_train](https://huggingface.co/datasets/jacklin/msmarco_passage_ranking_corpus), [queries](https://huggingface.co/datasets/jacklin/msmarco_passage_ranking_queries) and [corpus](https://huggingface.co/datasets/jacklin/msmarco_passage_ranking_corpus).
 
-## Simple Training
+## Training <a name="training"></a>
 This below script is the DHR (DLR) training in our paper. You can simply switch ${MODEL} from DHR to DLR, and the option `--combine_cls` would be turned off automatically.
 ```shell=bash
 export CUDA_VISIBLE_DEVICES=0
@@ -33,7 +43,7 @@ python -m tevatron.driver.train \
   --combine_cls \
 ```
 
-## Inference MSMARCO Passage for Retrieval
+## Generate Passage and Query Embeddings <a name="generate_embeddings"></a>
 ```
 export CUDA_VISIBLE_DEVICES=0
 export MODEL=DHR #place DHR for DeLADE+[CLS] and DLR for DeLADE
@@ -92,7 +102,10 @@ do
     --encoded_save_path ${INDEX_DIR}/queries/queries.${CORPUS}.${SPLIT}.pt
 done
 ```
-## End-to-end Retrieval with GIP
+
+## End-to-end Retrieval <a name="retrieval"></a>
+### Retrieval on GPU <a name="retrieval_on_gpu"></a>
+If you want to use GPU for retrieval, we suggest to use our implemented two-stage retrieval.
 ```
 # GIP retrieval
 for shrad in 0
@@ -111,7 +124,30 @@ do
     --combine_cls \
 done
 ```
-## Evaluation
+
+### Retrieval on CPU <a name="retrieval_on_cpu"></a>
+If you only have CPU, we suggest to first quanize the index; then, use our implemented two-stage retrieval.
+```
+# index quanization
+python -m retrieval.quantize_index \
+--index_path ${INDEX_PATH}/index/${CORPUS}.index.pt \
+--output_index_path ${INDEX_PATH}/index/${CORPUS}.pq64.faiss.index \
+--qauntized_dim 64
+
+# GIP retrieval
+python -m retrieval.gip_retrieval \
+--query_emb_path ${INDEX_PATH}/queries/queries.${CORPUS}.${SPLIT}.pt \
+--index_path ${INDEX_PATH}/index/${CORPUS}.index.pt \
+--faiss_pq_index_path ${INDEX_PATH}/index/${CORPUS}.pq64.faiss.index \
+--emb_dim ${DLRDIM} \
+--topk 1000 \
+--lamda 1 \
+--batch 1 \
+--PQIP \
+--rerank 
+```
+
+## Evaluation <a name="evaluation"></a>
 The run file, result.trec, is in the trec format so that you can directly evaluate the result using pyserini.
 ```
 python -m pyserini.eval.trec_eval -c -M 10 -m recip_rank ${QREL_PATH} result.trec

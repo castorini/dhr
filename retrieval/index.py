@@ -22,7 +22,6 @@ def main():
 	parser.add_argument("--index_path", type=str, required=True)
 	args = parser.parse_args()
 
-
 	## Merge index
 	corpus_files = glob.glob(os.path.join(args.index_path, args.index_prefix + '.split*.pt'))
 

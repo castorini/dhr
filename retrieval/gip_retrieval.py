@@ -106,80 +106,53 @@ def GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs
 
     start_time = time.time()
     total_num_idx = 0
+
+    cls_dim = query_embs.shape[1] - args.emb_dim
+    if cls_dim > 0:
+        query_arg_idxs = torch.nn.functional.pad(query_arg_idxs, (0, cls_dim), mode='constant', value=1)
+        corpus_arg_idxs = torch.nn.functional.pad(corpus_arg_idxs, (0, cls_dim), mode='constant', value=1)
+
     for i, (query_emb, query_arg_idx) in tqdm(enumerate(zip(query_embs, query_arg_idxs)), total=len(query_embs), desc=description):
 
         if args.theta==0:
             total_num_idx += args.emb_dim
-            candidate_sparse_embs = ((corpus_arg_idxs[:,:]==query_arg_idx)*corpus_embs[:,:args.emb_dim])                    
+            candidate_sparse_embs = ((corpus_arg_idxs==query_arg_idx)*corpus_embs)                    
+            scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb))
+            del candidate_sparse_embs
 
-            if args.combine_cls:
-                candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-                scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-                del candidate_sparse_embs, candidate_dense_embs
-            else:
-                scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
-                del candidate_sparse_embs
-            sort_idx = torch.argsort(scores, descending=True)[:args.topk]
+            sort_idx = torch.topk(scores, args.topk, dim=0).indices
             sort_candidates = sort_idx
             sort_scores = scores[sort_idx]
-
             torch.cuda.empty_cache()
 
         else:
-            num_idx = int((query_emb[:args.emb_dim] > args.theta).sum())
 
-            if args.combine_cls:
-                num_cls_idx = int((query_emb[args.emb_dim:] > args.theta).sum())
-                important_cls_idx = torch.argsort(query_emb[args.emb_dim:], axis=0, descending=True).tolist()[:num_cls_idx]
-            if args.combine_cls:
-                total_num_idx += num_idx + num_cls_idx
-            else:
-                total_num_idx += num_idx 
-            if num_idx >40:
-                num_idx=40
-            if num_idx==0:
-                num_idx=1
-            important_idx = torch.argsort(query_emb[:args.emb_dim], axis=0, descending=True).tolist()[:num_idx]
+            num_idx = int((query_emb > args.theta).sum())
+            important_idx = torch.topk(query_emb, num_idx, dim=0).indices.tolist()
 
             if not args.IP:
                 # Approximate GIP
-                candidate_sparse_embs = ((corpus_arg_idxs[:,important_idx]==query_arg_idx[important_idx])*corpus_embs[:,important_idx])
-                if args.combine_cls:
-
-                    candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-                    partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs[:,important_cls_idx], query_emb[args.emb_dim:][important_cls_idx]))
-                    # partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) + torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-                else:
-                    partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
+                candidate_sparse_embs = ( (corpus_arg_idxs[:,important_idx]==query_arg_idx[important_idx]) * corpus_embs[:,important_idx] )
+                partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[important_idx])) 
             else:
-                # IN as an approximation ablation
-                if args.combine_cls:
-                    candidate_sparse_embs = corpus_embs[:,:args.emb_dim]
-                    candidate_dense_embs = corpus_embs[:,args.emb_dim:]
-
-                    partial_scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + 1*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-                else:
-                    partial_scores = torch.einsum('ij,j->i',(corpus_embs, query_emb))
+                # IN as an approximation
+                partial_scores = torch.einsum('ij,j->i',(corpus_embs, query_emb))
 
             if args.rerank:
-                candidates = torch.argsort(partial_scores, descending=True)[:args.agip_topk]
+                candidates = torch.topk(partial_scores, args.agip_topk, dim=0).indices
 
-                candidate_sparse_embs = ((corpus_arg_idxs[candidates,:]==query_arg_idx)*corpus_embs[candidates,:args.emb_dim])
-                # candidate_sparse_embs = torch.where((corpus_arg_idxs[candidates,:]==query_arg_idx),corpus_embs[candidates,:args.emb_dim],torch.zeros_like(corpus_embs[candidates,:args.emb_dim]))
-                if args.combine_cls:
-                    candidate_dense_embs = corpus_embs[candidates,args.emb_dim:]
-                    scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim])) + args.lamda*torch.einsum('ij,j->i',(candidate_dense_embs, query_emb[args.emb_dim:]))
-                else:
-                    scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb[:args.emb_dim]))
+                candidate_sparse_embs = ((corpus_arg_idxs[candidates,:]==query_arg_idx)*corpus_embs[candidates])
 
-                sort_idx = torch.argsort(scores, descending=True)[:args.topk]
+                scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb))
+
+                sort_idx = torch.topk(scores, args.topk, dim=0).indices
                 sort_candidates = candidates[sort_idx]
                 sort_scores = scores[sort_idx]
 
                 del important_idx, candidates, candidate_sparse_embs, scores, sort_idx
                 torch.cuda.empty_cache()
             else:
-                sort_candidates = torch.argsort(partial_scores, descending=True)[:args.topk]
+                sort_candidates = torch.topk(partial_scores, args.topk, dim=0).indices
                 sort_scores = partial_scores[sort_candidates]
 
         all_scores[qids[i]]=sort_scores.cpu().tolist()
@@ -191,34 +164,102 @@ def GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs
 
     return all_results, all_scores 
 
+def PQ_IP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs, args):
+    assert args.faiss_pq_index_path is not None, 'you do not spesify your PQ index through --faiss_pq_index_path'
+    print('Load PQ index ...')
+    faiss_index = faiss.read_index(args.faiss_pq_index_path)
+
+    if args.rerank:
+        description = 'IP (Product Quantization) search w/ GIP rerank'
+    else:
+        description = 'IP (Product Quantization) search w/o GIP rerank'
+
+    all_results = {}
+    all_scores = {}
+
+    cls_dim = query_embs.shape[1] - query_arg_idxs.shape[1]
+    if cls_dim > 0:
+        query_arg_idxs = torch.nn.functional.pad(query_arg_idxs, (0, cls_dim), mode='constant', value=1)
+        corpus_arg_idxs = torch.nn.functional.pad(corpus_arg_idxs, (0, cls_dim), mode='constant', value=1)
+
+    if len(query_embs)%args.batch == 0:
+        total_batch = len(query_embs)//args.batch
+    else:
+        total_batch = len(query_embs)//args.batch + 1
+
+    start_time = time.time()
+    for i in tqdm(range(total_batch), total=total_batch, desc=description):
+
+        if i == (total_batch -1):
+            batch_query_embs = query_embs[i*args.batch:]
+            batch_query_arg_idxs = query_arg_idxs[i*args.batch:]
+            batch_qids = qids[i*args.batch:]
+        else:
+            batch_query_embs = query_embs[i*args.batch:(i+1)*args.batch]
+            batch_query_arg_idxs = query_arg_idxs[i*args.batch:(i+1)*args.batch]
+            batch_qids = qids[i*args.batch:(i+1)*args.batch]
+
+        scores, candidates = faiss_index.search(batch_query_embs.numpy(), args.agip_topk)
+
+        
+        for i, (qid, query_emb, query_arg_idx, candidate) in enumerate(zip(batch_qids, batch_query_embs, batch_query_arg_idxs, candidates)):
+            if args.rerank:
+                candidate_sparse_embs = ((corpus_arg_idxs[candidate,:]==query_arg_idx)*corpus_embs[candidate])
+                scores = torch.einsum('ij,j->i',(candidate_sparse_embs, query_emb))
+
+                sort_idx = torch.topk(scores, args.topk, dim=0).indices
+                sort_candidates = candidate[sort_idx]
+                sort_scores = scores[sort_idx]
+
+                all_scores[qid] = sort_scores.tolist()
+                all_results[qid] = sort_candidates.tolist()
+
+                # del candidates, candidate_sparse_embs, scores, sort_idx
+            else:
+                # sort_candidates = torch.argsort(partial_scores, descending=True)[:args.topk]
+                all_scores[qid] = scores[i, :args.topk].tolist()
+                all_results[qid] = candidates[i, :args.topk].tolist()
+                
+
+        torch.cuda.empty_cache()
+        
+
+
+    time_per_query = (time.time() - start_time)/query_embs.shape[0]
+    print('Retrieving {} queries ({:0.3f} s/query)'.format(query_embs.shape[0], time_per_query))
+
+    return all_results, all_scores 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--query_emb_path", type=str, required=True)
-    parser.add_argument("--emb_dim", type=int, default=768)
+    parser.add_argument("--index_path", type=str, required=True)
+    parser.add_argument("--faiss_pq_index_path", type=str, default=None)
+    parser.add_argument("--emb_dim", type=int, default=768, help='DLR dimension')
     parser.add_argument("--theta", type=float, default=0.1)
     parser.add_argument("--topk", type=int, default=1000)
     parser.add_argument("--agip_topk", type=int, default=10000)
     parser.add_argument("--combine_cls", action='store_true')
     parser.add_argument("--IP", action='store_true')
+    parser.add_argument("--PQIP", action='store_true')
+    parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--brute_force", action='store_true')
-    parser.add_argument("--index_path", type=str, required=True)
-    parser.add_argument("--faiss_index_path", type=str)
     parser.add_argument("--use_gpu", action='store_true')
     parser.add_argument("--rerank", action='store_true')
-    parser.add_argument("--lamda", type=float, default=1)
+    parser.add_argument("--lamda", type=float, default=1, help='weight for [CSL] for concatenation')
     parser.add_argument("--total_shrad", type=int, default=1)
     parser.add_argument("--shrad", type=int, default=0)
     parser.add_argument("--run_name", type=str, default='h2oloo')
     args = parser.parse_args()
 
     if not args.use_gpu:
-        import mkl
-        mkl.set_num_threads(1)
+        if args.batch > 1:
+            torch.set_num_threads(72)
+        else:
+            torch.set_num_threads(1)
     else:
         torch.cuda.set_device(0)
 
-
-    
     # load query embeddings
     print('Load query embeddings ...')
     with open(args.query_emb_path, 'rb') as f:
@@ -236,6 +277,10 @@ def main():
             query_arg_idxs = torch.from_numpy(query_arg_idxs)
         except:
             query_arg_idxs = None
+
+    cls_dim = query_embs.shape[1] - args.emb_dim
+    if cls_dim > 0:
+        query_embs[:,-cls_dim:] = args.lamda * query_embs[:,-cls_dim:]        
 
 
     
@@ -273,9 +318,11 @@ def main():
         # print(torch.sum(density)/8841823/args.emb_dim)
 
 
-
     if query_arg_idxs is not None:
-        results, scores = GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs ,args)
+        if not args.PQIP:
+            results, scores = GIP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs ,args)
+        else:
+            results, scores = PQ_IP_retrieval(qids, query_embs, query_arg_idxs, corpus_embs, corpus_arg_idxs ,args)
     else:
         results, scores = IP_retrieval(qids, query_embs, corpus_embs, args)
 
@@ -286,7 +333,9 @@ def main():
     for i, query_id in tqdm(enumerate(results), total=len(results), desc=f"write results"):
         result = results[query_id]
         score = scores[query_id]
+
         for rank, docidx in enumerate(result):
+
             docid = docids[docidx]
             if (docid!=query_id):
                 fout.write('{} Q0 {} {} {} {}\n'.format(query_id, docid, rank+1, score[rank], args.run_name))

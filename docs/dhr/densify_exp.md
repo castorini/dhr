@@ -1,7 +1,9 @@
 # Densify Sparse Vector
-The repo is to demonstrate how to densify existing sparse lexical retrievers for dense search. We use [pyserini](https://github.com/castorini/pyserini) to get the sparse vectors from models. We show how to densify BM25 on msmarco-passage ranking dataset in this repo.   
+The repo is to demonstrate how to densify existing sparse lexical retrievers for dense search. We use [pyserini](https://github.com/castorini/pyserini) to get the sparse vectors from models. We show how to densify BM25 on msmarco-passage ranking dataset in this repo.
+1. [Densifying BM25](#densifying_bm25)
+1. [Densifying uniCOIL](#densifying_uniCOIL)
 
-# Densifying BM25
+# Densifying BM25 <a name="densifying_bm25"></a>
 ## Data Prepare
 Folloing the [instruction](https://github.com/castorini/anserini/blob/master/docs/experiments-msmarco-passage.md), we first download MSMARCO passage collection and query files. Then, convert the collection.tsv into json file in $COLLECTION_PATH for pyserini index, and put queries.dev.small.tsv file into $Q_DIR.
 ```shell=bash
@@ -75,7 +77,7 @@ python -m retrieval.gip_retrieval \
   --use_gpu \
 ```
 
-# Densifying uniCOIL
+# Densifying uniCOIL <a name="densifying_uniCOIL"></a>
 ## Data Prepare
 Folloing the [instruction](https://github.com/castorini/pyserini/blob/master/docs/experiments-unicoil.md), we download pre-encoded uniCOIL passage collection. 
 ```shell=bash

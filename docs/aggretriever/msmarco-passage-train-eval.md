@@ -1,8 +1,15 @@
 # Training and Inference on MSMARCO Passage ranking
-## Data Preparation
+In the following, we describe how to train, encode and retrieve with Aggretriever on MS MARCO passage-v1.
+1. [MS MARCO Passage-v1 Data Preparation](#msmarco_data_prep)
+1. [Training](#training)
+1. [Generate Passage and Query Embeddings](#generate_embeddings)
+1. [End-To-End Retrieval](#retrieval)
+1. [Evaluation](#evaluation)
+
+## Data Preparation <a name="msmarco_data_prep"></a>
 We first preprocess the corpus, development queries and official training data in the json format. Each passage in the corpus is a line with the format: `{"text_id": passage_id, "text": [vocab_ids]}`. Similarly, each query in the development set is a line with the format: `{"text_id": query_id, "text": [vocab_ids]}`. As for training data, we rearrange the official training data in the format: `{"query": [vocab_ids], "positive_pids": [positive_passage_id0, positive_passage_id1, ...], "negative_pids": [negative_passage_id0, negative_passage_id1, ...]}`. Note that we use string type for passage and query. You can also download our preprocessed data on huggingface hub: [official_train](https://huggingface.co/datasets/jacklin/msmarco_passage_ranking_corpus), [queries](https://huggingface.co/datasets/jacklin/msmarco_passage_ranking_queries) and [corpus](https://huggingface.co/datasets/jacklin/msmarco_passage_ranking_corpus).
 
-## Simple Training
+## Training <a name="training"></a>
 This below script is the Aggretriever training in our paper. Here we use distilbert-base-uncased as an example. You can switch to any backbone using `--model_name_or_path`.
 ```shell=bash
 export CUDA_VISIBLE_DEVICES=0
@@ -33,7 +40,7 @@ python -m tevatron.driver.train \
   --dataloader_num_workers 8 \
 ```
 
-## Inference MSMARCO Passage for Retrieval
+## Inference MSMARCO Passage for Retrieval <a name="generate_embeddings"></a>
 ```
 export CUDA_VISIBLE_DEVICES=0
 export CORPUS=msmarco-passage
@@ -86,7 +93,8 @@ do
     --encoded_save_path ${INDEX_DIR}/queries/queries.${CORPUS}.${SPLIT}.pt
 done
 ```
-## End-to-end Retrieval
+
+## End-to-End Retrieval <a name="retrieval"></a>
 ```
 # IP retrieval
 for shrad in 0
@@ -102,7 +110,8 @@ do
     --use_gpu \
 done
 ```
-## Evaluation
+
+## Evaluation <a name="evaluation"></a>
 The run file, result.trec, is in the trec format so that you can directly evaluate the result using pyserini.
 ```
 python -m pyserini.eval.trec_eval -c -M 10 -m recip_rank ${QREL_PATH} result.trec

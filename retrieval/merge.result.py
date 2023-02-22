@@ -14,6 +14,7 @@ def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--total_shrad", type=int, default=1)
 	parser.add_argument("--topk", type=int, default=1000)
+	parser.add_argument("--run_name", default='dhr')
 
 	args = parser.parse_args()
 	results = defaultdict(list)
@@ -37,7 +38,7 @@ def main():
 		result = results[query_id]
 		sort_idx = np.array(score).argsort()[::-1][:args.topk]
 		for rank, idx in enumerate(sort_idx):
-			fout.write('{} Q0 {} {} {} {}\n'.format(query_id, result[idx], rank+1, score[idx], 'DWM'))
+			fout.write('{} Q0 {} {} {} {}\n'.format(query_id, result[idx], rank+1, score[idx], args.run_name))
 		pbar.update(10 * i + 1)
 	fout.close()
 

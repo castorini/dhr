@@ -1,7 +1,7 @@
 # Dense Hybrid Retrieval
 In this repo, we introduce two approaches to training transformers to capture semantic and lexical text representations for robust dense passage retrieval.
-1. *[Aggretriever: A Simple Approach to Aggregate Textual Representation for Robust Dense Passage Retrieval](https://arxiv.org/abs/2208.00511)* Sheng-Chieh Lin, Minghan Li and Jimmy Lin. 
-2. *[A Dense Representation Framework for Lexical and Semantic Matching](https://arxiv.org/abs/2206.09912)* Sheng-Chieh Lin and Jimmy Lin. 
+1. *[Aggretriever: A Simple Approach to Aggregate Textual Representation for Robust Dense Passage Retrieval](https://arxiv.org/abs/2208.00511)* Sheng-Chieh Lin, Minghan Li and Jimmy Lin. (TACL just accepted)
+2. *[A Dense Representation Framework for Lexical and Semantic Matching](https://dl.acm.org/doi/10.1145/3582426)* Sheng-Chieh Lin and Jimmy Lin. (TOIS 2021 in press)
 
 This repo contains three parts: (1) densify (2) training (tevatron) (3) retrieval. 
 Our training code is mainly from [Tevatron](https://github.com/texttron/tevatron) with a minor revision.
@@ -13,6 +13,14 @@ pip install transformers==4.15.0
 pip install pyserini
 pip install beir
 ```
+
+## Huggingface Checkpoints
+Model | Initialization | MARCO Dev | BEIR (13 public datasets) | Huggingface Path | Document
+|---|---|---|---|---|---
+DeLADE+[CLS] plus | [distilbert-base-uncased](https://huggingface.co/distilbert-base-uncased) | 37.1 | 49.8 | [jacklin/DeLADE-CLS-P](https://huggingface.co/jacklin/DeLADE-CLS-P) | [Read Me](https://github.com/castorini/dhr/tree/main/docs/dhr)
+DeLADE+[CLS] | [distilbert-base-uncased](https://huggingface.co/distilbert-base-uncased) | 35.7 | 48.5 | [jacklin/DeLADE-CLS](https://huggingface.co/jacklin/DeLADE-CLS) | [Read Me](https://github.com/castorini/dhr/tree/main/docs/dhr)
+Aggretriever | [distilbert-base-uncased](https://huggingface.co/bert-base-uncased) | 34.1 | 46.0 | [jacklin/DistilBERT-AGG](https://huggingface.co/jacklin/DistilBERT-AGG) | [Read Me](https://github.com/castorini/dhr/tree/main/docs/aggretriever)
+
 # Aggretriever
 
 <img src="./fig/aggretriever.png" width="500">

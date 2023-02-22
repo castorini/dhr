@@ -1,6 +1,9 @@
 # BEIR Evaluation
 We provide two scripts for BEIR evaluation and use the model, [DeLADE-CLS-P](https://huggingface.co/jacklin/DeLADE-CLS-P), and the dataset, trec-covid, as an example.
-## Evaluation with GIP
+1. [Evaluation with GIP Retrieval](#evaluation_with_gip)
+1. [Evaluation with Sentence Transformer](#evaluation_with_sentence_transformer)
+
+## Evaluation with GIP Retrieval <a name="evaluation_with_gip"></a>
 We first downlaod our model and beir dataset.
 ```
 git clone https://huggingface.co/jacklin/DeLADE-CLS-P
@@ -102,7 +105,7 @@ python -m pyserini.eval.trec_eval -c -mndcg_cut.10 -mrecall.100 ./dataset/${CORP
 python -m retrieval.rcap_eval --qrel_file_path ./dataset/${CORPUS}/qrels/qrels.${SPLIT}.tsv --run_file_path result.trec
 
 ```
-## Evaluation with Sentence Transformer
+## Evaluation with Sentence Transformer  <a name="evaluation_with_sentence_transformer"></a>
 The second one is to directly use [BEIR](https://github.com/beir-cellar/beir) API to conduct brute-force search. No densification before retrieval; thus, the result is slightly different from the numbers reported in our paper. Note that, for this script, we currently only support our DHR models, [DeLADE-CLS](https://huggingface.co/jacklin/DeLADE-CLS) and [DeLADE-CLS-P](https://huggingface.co/jacklin/DeLADE-CLS-P). 
 ```
 git clone https://huggingface.co/jacklin/DeLADE-CLS-P
